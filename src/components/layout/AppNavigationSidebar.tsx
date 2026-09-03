@@ -59,16 +59,10 @@ export function AppNavigationSidebar() {
       }`}
     >
       {/* Brand Header & Toggle Button */}
-      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} mb-6`}>
-        {isCollapsed ? (
-          <Link href="/" title="Dardcor Media" className="group">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40 group-hover:scale-105 transition-transform">
-              <Film size={16} className="text-white" />
-            </div>
-          </Link>
-        ) : (
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40 group-hover:scale-105 transition-transform">
+      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} mb-6 w-full`}>
+        {!isCollapsed && (
+          <Link href="/" className="flex items-center gap-2.5 group min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40 group-hover:scale-105 transition-transform shrink-0">
               <Film size={16} className="text-white" />
             </div>
             <div className="flex flex-col min-w-0">
@@ -84,12 +78,12 @@ export function AppNavigationSidebar() {
 
         <button
           onClick={toggleSidebar}
-          className={`p-1.5 rounded-lg bg-white/5 hover:bg-purple-600/30 text-purple-300 hover:text-white transition ${
-            isCollapsed ? 'mt-3' : ''
+          className={`p-2 rounded-xl bg-white/5 hover:bg-purple-600/30 text-purple-300 hover:text-white transition flex items-center justify-center ${
+            isCollapsed ? 'w-10 h-10' : ''
           }`}
           title={isCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'}
         >
-          {isCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
       </div>
 
