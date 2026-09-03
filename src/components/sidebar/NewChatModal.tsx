@@ -7,8 +7,8 @@ import { Avatar } from '@/components/ui/Avatar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { fetchCloudProfiles } from '@/lib/services/authService';
-import { saveUserChats } from '@/lib/services/chatService';
+import { fetchCloudProfiles, saveRegisteredUserToCloud } from '@/lib/services/authService';
+import { saveUserChats, broadcastLocalSync } from '@/lib/services/chatService';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -121,9 +121,14 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       // 3. Simpan obrolan baru ke Supabase Cloud Database secara realtime
       if (isSupabaseConfigured()) {
         const supabase = createClient();
+
+        // Pastikan kedua profil ada di Supabase Cloud Database
+        await saveRegisteredUserToCloud(user);
+        await saveRegisteredUserToCloud(targetUser);
+
         const { data: newChatData, error: chatError } = await supabase
           .from('chats')
-          .insert({
+          .upsert({
             id: newChatId,
             is_group: false,
             created_by: user.id,
@@ -132,16 +137,24 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
           .select()
           .maybeSingle();
 
-        if (!chatError && newChatData) {
+        if (newChatData) {
           createdChat = {
             ...createdChat,
             id: newChatData.id,
           };
 
-          await supabase.from('chat_participants').insert([
+          await supabase.from('chat_participants').upsert([
             { chat_id: newChatData.id, user_id: user.id },
             { chat_id: newChatData.id, user_id: targetUser.id },
           ]);
+
+          // Broadcast channel agar penerima langsung memuat obrolan baru di layarnya
+          const broadcastChannel = supabase.channel('dardcor_chat_broadcast');
+          broadcastChannel.send({
+            type: 'broadcast',
+            event: 'NEW_CHAT',
+            payload: { chatId: newChatData.id, recipientId: targetUser.id },
+          });
         }
       }
 
@@ -149,6 +162,7 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       const updatedChats = [createdChat, ...chats];
       addChat(createdChat);
       saveUserChats(user.id, updatedChats);
+      broadcastLocalSync('CHATS_UPDATED', { userId: user.id });
       setActiveChatId(createdChat.id);
       onClose();
     } catch (err) {

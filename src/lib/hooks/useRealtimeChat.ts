@@ -124,17 +124,59 @@ export function useRealtimeChat(activeChatId: string | null) {
         );
 
       reactionsChannel.subscribe();
+
+      // 3. Channel WebSocket Broadcast Realtime
+      const broadcastChannel = supabase
+        .channel('dardcor_chat_broadcast')
+        .on('broadcast', { event: 'NEW_MESSAGE' }, async ({ payload }) => {
+          try {
+            const newMsg = payload as Message;
+            if (!newMsg || newMsg.sender_id === user.id) return;
+
+            // Pastikan data profile pengirim terpasang
+            if (!newMsg.sender && newMsg.sender_id) {
+              const { data: senderProfile } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', newMsg.sender_id)
+                .maybeSingle();
+              if (senderProfile) newMsg.sender = senderProfile;
+            }
+
+            addMessage(newMsg);
+
+            const currentChats = useChatStore.getState().chats;
+            if (!currentChats.some((c) => c.id === newMsg.chat_id)) {
+              const fresh = await fetchUserChats(user.id);
+              setChats(fresh);
+            }
+
+            playMessageReceivedSound();
+          } catch (err) {
+            console.error('Error handling broadcast message:', err);
+          }
+        })
+        .on('broadcast', { event: 'NEW_CHAT' }, async ({ payload }) => {
+          try {
+            const data = payload as { chatId: string; recipientId: string };
+            if (data && (data.recipientId === user.id || data.recipientId === 'ALL')) {
+              const fresh = await fetchUserChats(user.id);
+              setChats(fresh);
+            }
+          } catch (err) {
+            console.error('Error handling NEW_CHAT broadcast:', err);
+          }
+        });
+
+      broadcastChannel.subscribe();
+
+      return () => {
+        if (messagesChannel) supabase.removeChannel(messagesChannel);
+        if (reactionsChannel) supabase.removeChannel(reactionsChannel);
+        if (broadcastChannel) supabase.removeChannel(broadcastChannel);
+      };
     } catch (e) {
       console.error('Realtime subscription error:', e);
     }
-
-    return () => {
-      if (messagesChannel) {
-        supabase.removeChannel(messagesChannel);
-      }
-      if (reactionsChannel) {
-        supabase.removeChannel(reactionsChannel);
-      }
-    };
-  }, [user?.id, activeChatId, addMessage, updateMessage, deleteMessage, addReaction, removeReaction]);
+  }, [user?.id, activeChatId, addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setChats]);
 }

@@ -176,6 +176,31 @@ export async function appendMessage(message: Message, currentUserId: string, oth
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (isUuid.test(message.chat_id)) {
         const supabase = createClient();
+
+        // A. Pastikan chat_id sudah terdaftar di tabel chats di cloud database Supabase
+        const { data: existingChat } = await supabase
+          .from('chats')
+          .select('id')
+          .eq('id', message.chat_id)
+          .maybeSingle();
+
+        if (!existingChat) {
+          await supabase.from('chats').upsert({
+            id: message.chat_id,
+            is_group: false,
+            created_by: currentUserId,
+            last_message_at: message.created_at,
+          });
+
+          // Daftarkan kedua pengguna ke chat_participants
+          const participantsList = [{ chat_id: message.chat_id, user_id: currentUserId }];
+          if (otherUserId && otherUserId !== currentUserId && isUuid.test(otherUserId)) {
+            participantsList.push({ chat_id: message.chat_id, user_id: otherUserId });
+          }
+          await supabase.from('chat_participants').upsert(participantsList);
+        }
+
+        // B. Simpan pesan ke tabel messages
         const safeMessageId = isUuid.test(message.id)
           ? message.id
           : typeof crypto !== 'undefined' && crypto.randomUUID
@@ -198,10 +223,19 @@ export async function appendMessage(message: Message, currentUserId: string, oth
           reply_to_id: safeReplyId,
         });
 
+        // C. Perbarui waktu pesan terakhir di chat
         await supabase
           .from('chats')
           .update({ last_message_at: message.created_at })
           .eq('id', message.chat_id);
+
+        // D. Broadcast via Supabase Realtime Channel untuk pengiriman instan multi-device
+        const broadcastChannel = supabase.channel('dardcor_chat_broadcast');
+        broadcastChannel.send({
+          type: 'broadcast',
+          event: 'NEW_MESSAGE',
+          payload: message,
+        });
       }
     } catch (err) {
       console.error('Error saving message to Supabase:', err);

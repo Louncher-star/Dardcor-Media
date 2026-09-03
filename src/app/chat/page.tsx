@@ -7,7 +7,7 @@ import { ChatArea } from '@/components/chat/ChatArea';
 import { StatusDrawer } from '@/components/status/StatusDrawer';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { getCurrentUser, clearAuthCookie } from '@/lib/services/authService';
+import { getCurrentUser, clearAuthCookie, saveRegisteredUserToCloud } from '@/lib/services/authService';
 import { fetchUserChats, subscribeToLocalSync } from '@/lib/services/chatService';
 import { useRealtimeChat } from '@/lib/hooks/useRealtimeChat';
 import { usePresence } from '@/lib/hooks/usePresence';
@@ -40,6 +40,8 @@ export default function DardcorChatApp() {
       }
 
       setUser(currentUser);
+      // Pastikan profil user ini tersinkronisasi ke database cloud Supabase
+      saveRegisteredUserToCloud(currentUser);
 
       // Ambil obrolan riil milik pengguna ini
       try {
