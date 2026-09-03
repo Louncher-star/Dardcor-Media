@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
@@ -18,13 +18,205 @@ import {
   ChevronDown, 
   LayoutGrid, 
   Smartphone,
-  Check,
-  Globe
+  Check
 } from 'lucide-react';
 import { getCurrentUser } from '@/lib/services/authService';
 import { Profile } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
+
+interface ReelItemProps {
+  video: TikTokVideoItem;
+  isActive: boolean;
+  isMuted: boolean;
+  toggleMute: () => void;
+  liked: boolean;
+  onToggleLike: () => void;
+  onShare: () => void;
+  copied: boolean;
+  formatNumber: (n: number) => string;
+  index: number;
+  total: number;
+}
+
+function ReelItem({
+  video,
+  isActive,
+  isMuted,
+  toggleMute,
+  liked,
+  onToggleLike,
+  onShare,
+  copied,
+  formatNumber,
+  index,
+  total,
+}: ReelItemProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+
+  // Play / Pause video sesuai status aktif di viewport
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (isActive) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {
+        // Jika autoplay audio diblokir oleh browser (terutama mobile), mute otomatis
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          videoRef.current.play().catch(() => {});
+        }
+      });
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [isActive]);
+
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  return (
+    <div
+      data-index={index}
+      className="reel-slide relative w-full h-full snap-start snap-always shrink-0 bg-black flex items-center justify-center overflow-hidden select-none"
+    >
+      {/* Video Element */}
+      <video
+        ref={videoRef}
+        src={video.video_url}
+        poster={video.cover_url}
+        className="w-full h-full object-cover cursor-pointer"
+        loop
+        playsInline
+        muted={isMuted}
+        onClick={togglePlay}
+      />
+
+      {/* Pause Overlay Indicator */}
+      {!isPlaying && (
+        <div
+          onClick={togglePlay}
+          className="absolute inset-0 bg-black/40 flex items-center justify-center cursor-pointer transition-opacity z-10"
+        >
+          <div className="w-16 h-16 rounded-full bg-purple-600/80 text-white flex items-center justify-center shadow-lg backdrop-blur-sm">
+            <Play size={28} className="translate-x-0.5" />
+          </div>
+        </div>
+      )}
+
+      {/* Top Controls: Index Info & Audio Mute Button */}
+      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 flex items-center justify-between z-20 pointer-events-none">
+        <div className="px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] text-white font-medium">
+          {index + 1} / {total}
+        </div>
+        <button
+          onClick={toggleMute}
+          className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white hover:bg-black/70 pointer-events-auto transition active:scale-95"
+        >
+          {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+        </button>
+      </div>
+
+      {/* Right Side Social Overlay: Love, Comment, Share */}
+      <div className="absolute right-2.5 sm:right-3 bottom-24 sm:bottom-16 flex flex-col items-center gap-4 sm:gap-5 z-20">
+        {/* Author Avatar with Plus Badge */}
+        <div className="relative group cursor-pointer" title={`@${video.author.unique_id}`}>
+          <img
+            src={video.author.avatar}
+            alt={video.author.nickname}
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full border-2 border-white object-cover shadow-lg"
+          />
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#7c3aed] text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-md">
+            +
+          </div>
+        </div>
+
+        {/* Like Button */}
+        <button
+          onClick={onToggleLike}
+          className="flex flex-col items-center gap-1 text-white active:scale-125 hover:scale-110 transition-transform"
+        >
+          <div
+            className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md transition ${
+              liked
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/50'
+                : 'bg-black/50 border border-white/15 text-white hover:bg-white/20'
+            }`}
+          >
+            <Heart
+              size={19}
+              fill={liked ? 'currentColor' : 'none'}
+              className={liked ? 'text-white' : ''}
+            />
+          </div>
+          <span className="text-[10px] sm:text-[11px] font-bold drop-shadow">
+            {formatNumber(video.digg_count + (liked ? 1 : 0))}
+          </span>
+        </button>
+
+        {/* Comment Button */}
+        <div className="flex flex-col items-center gap-1 text-white">
+          <div className="w-10 h-10 rounded-full bg-black/50 border border-white/15 flex items-center justify-center backdrop-blur-md">
+            <MessageCircle size={19} />
+          </div>
+          <span className="text-[10px] sm:text-[11px] font-bold drop-shadow">
+            {formatNumber(video.comment_count)}
+          </span>
+        </div>
+
+        {/* Share Button */}
+        <button
+          onClick={onShare}
+          className="flex flex-col items-center gap-1 text-white hover:scale-110 active:scale-95 transition-transform"
+          title="Bagikan Video"
+        >
+          <div className="w-10 h-10 rounded-full bg-black/50 border border-white/15 flex items-center justify-center backdrop-blur-md">
+            {copied ? <Check size={17} className="text-emerald-400" /> : <Share2 size={19} />}
+          </div>
+          <span className="text-[10px] font-bold drop-shadow">
+            {copied ? 'Tersalin' : formatNumber(video.share_count)}
+          </span>
+        </button>
+      </div>
+
+      {/* Bottom Video Info & Music Details */}
+      <div className="absolute left-3 sm:left-4 right-16 bottom-20 sm:bottom-5 z-20 space-y-1.5 pointer-events-auto">
+        {/* Creator Handle */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <h3 className="font-bold text-sm text-white drop-shadow-md hover:underline cursor-pointer">
+            @{video.author.nickname}
+          </h3>
+          <span className="text-[10px] text-purple-300 font-mono">
+            #{video.author.unique_id}
+          </span>
+        </div>
+
+        {/* Video Caption */}
+        <p className="text-xs text-white/95 line-clamp-2 leading-relaxed drop-shadow-md">
+          {video.title}
+        </p>
+
+        {/* Music Info */}
+        <div className="flex items-center gap-2 text-[11px] text-purple-200/90 pt-0.5">
+          <Music size={12} className="shrink-0 animate-pulse text-[#c084fc]" />
+          <span className="truncate">
+            {video.music_info?.title || 'Suara Asli'} • {video.music_info?.author || video.author.nickname}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function MediaFeedPage() {
   const router = useRouter();
@@ -36,15 +228,13 @@ export default function MediaFeedPage() {
   const [selectedRegion, setSelectedRegion] = useState('ID');
   const [viewMode, setViewMode] = useState<'reels' | 'grid'>('reels');
 
-  // Reels Mode State
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
+  // Reels Active State
+  const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [likedVideos, setLikedVideos] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const touchStartY = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // 1. Cek sesi pengguna
   useEffect(() => {
@@ -66,7 +256,11 @@ export default function MediaFeedPage() {
       const json = await res.json();
       if (json.success && json.data && json.data.length > 0) {
         setVideos(json.data);
-        setCurrentIndex(0);
+        setActiveIndex(0);
+        // Reset scroll position ke paling atas
+        if (containerRef.current) {
+          containerRef.current.scrollTop = 0;
+        }
       }
     } catch (err) {
       console.error('Error loading TikTok feed:', err);
@@ -79,68 +273,65 @@ export default function MediaFeedPage() {
     fetchTikTokFeed(selectedRegion);
   }, [selectedRegion]);
 
-  // Kontrol video saat berganti indeks
+  // 3. Scroll Listener / IntersectionObserver untuk mendeteksi video yang sedang aktif saat di-scroll
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      if (isPlaying) {
-        videoRef.current.play().catch(() => {
-          // Auto-play policy browser (terutama di mobile)
-          setIsMuted(true);
-          videoRef.current?.play().catch(() => {});
-        });
+    const container = containerRef.current;
+    if (!container || viewMode !== 'reels') return;
+
+    const handleScroll = () => {
+      const height = container.clientHeight;
+      if (height === 0) return;
+      const index = Math.round(container.scrollTop / height);
+      if (index >= 0 && index < videos.length && index !== activeIndex) {
+        setActiveIndex(index);
       }
-    }
-  }, [currentIndex, isPlaying]);
+    };
 
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
-      setIsPlaying(true);
-    } else {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [videos.length, activeIndex, viewMode]);
 
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = !videoRef.current.muted;
-    setIsMuted(videoRef.current.muted);
-  };
+  // Scroll ke video tertentu secara mulus
+  const scrollToVideo = useCallback((index: number) => {
+    if (!containerRef.current) return;
+    const height = containerRef.current.clientHeight;
+    containerRef.current.scrollTo({
+      top: index * height,
+      behavior: 'smooth',
+    });
+    setActiveIndex(index);
+  }, []);
 
   const handleNextVideo = () => {
-    if (currentIndex < videos.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
+    if (activeIndex < videos.length - 1) {
+      scrollToVideo(activeIndex + 1);
     }
   };
 
   const handlePrevVideo = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
+    if (activeIndex > 0) {
+      scrollToVideo(activeIndex - 1);
     }
   };
 
-  // Touch swipe handling for mobile
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  };
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (viewMode !== 'reels') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleNextVideo();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        handlePrevVideo();
+      } else if (e.key === 'm') {
+        setIsMuted((prev) => !prev);
+      }
+    };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartY.current === null) return;
-    const touchEndY = e.changedTouches[0].clientY;
-    const diffY = touchStartY.current - touchEndY;
-
-    if (diffY > 45) {
-      // Swipe Up -> Next video
-      handleNextVideo();
-    } else if (diffY < -45) {
-      // Swipe Down -> Prev video
-      handlePrevVideo();
-    }
-    touchStartY.current = null;
-  };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewMode, activeIndex, videos.length]);
 
   const toggleLike = (videoId: string) => {
     setLikedVideos((prev) => ({
@@ -165,27 +356,11 @@ export default function MediaFeedPage() {
     }
   };
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (viewMode !== 'reels') return;
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        handleNextVideo();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        handlePrevVideo();
-      } else if (e.key === ' ' || e.key === 'k') {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.key === 'm') {
-        toggleMute();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewMode, currentIndex, videos.length, isPlaying]);
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return String(num);
+  };
 
   if (isLoadingAuth) {
     return (
@@ -197,17 +372,9 @@ export default function MediaFeedPage() {
     );
   }
 
-  const currentVideo = videos[currentIndex];
-
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return String(num);
-  };
-
   return (
     <div className="h-[100dvh] w-screen overflow-hidden flex flex-col bg-[#0b0914] text-white select-none relative">
-      {/* Top Navbar: Fully Responsive for Mobile, Tablet, & Desktop */}
+      {/* Top Navbar */}
       <header className="h-14 sm:h-16 px-3 sm:px-6 md:px-8 bg-[#120f20]/95 backdrop-blur-md border-b border-purple-500/20 flex items-center justify-between shrink-0 z-30 shadow-md">
         {/* Left: Brand Logo & Navigation Tabs */}
         <div className="flex items-center gap-3 sm:gap-6 min-w-0">
@@ -293,7 +460,7 @@ export default function MediaFeedPage() {
           <div className="flex items-center bg-[#1c162e] p-0.5 rounded-xl border border-purple-500/20">
             <button
               onClick={() => setViewMode('reels')}
-              title="Tampilan Reels"
+              title="Tampilan Reels (Scroll Vertikal)"
               className={`p-1 sm:p-1.5 rounded-lg transition ${
                 viewMode === 'reels' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
               }`}
@@ -302,7 +469,7 @@ export default function MediaFeedPage() {
             </button>
             <button
               onClick={() => setViewMode('grid')}
-              title="Tampilan Grid"
+              title="Tampilan Grid Explorer"
               className={`p-1 sm:p-1.5 rounded-lg transition ${
                 viewMode === 'grid' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
               }`}
@@ -321,7 +488,7 @@ export default function MediaFeedPage() {
         </div>
       </header>
 
-      {/* Main Content Area: Adapts to Full Height on Mobile & Desktop */}
+      {/* Main Content Area */}
       <main className="flex-1 w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] flex items-center justify-center relative overflow-hidden bg-[#07050e]">
         {isLoadingVideos ? (
           <div className="flex flex-col items-center justify-center gap-3 text-purple-300">
@@ -339,163 +506,50 @@ export default function MediaFeedPage() {
             </button>
           </div>
         ) : viewMode === 'reels' ? (
-          /* ================= REELS / SHORTS VERTICAL PLAYER ================= */
-          <div
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-            className="relative w-full sm:max-w-[420px] md:max-w-[450px] h-full sm:h-[94%] sm:my-auto bg-black sm:rounded-3xl overflow-hidden shadow-2xl shadow-purple-950/80 sm:border sm:border-purple-500/30 flex items-center justify-center"
-          >
-            {currentVideo && (
-              <>
-                {/* Video Element */}
-                <video
-                  ref={videoRef}
-                  src={currentVideo.video_url}
-                  poster={currentVideo.cover_url}
-                  className="w-full h-full object-cover cursor-pointer"
-                  loop
-                  playsInline
-                  autoPlay
-                  muted={isMuted}
-                  onClick={togglePlay}
+          /* ================= VERTICAL SNAP SCROLL REELS CONTAINER ================= */
+          <div className="relative w-full sm:max-w-[420px] md:max-w-[450px] h-full sm:h-[94%] sm:my-auto flex items-center justify-center">
+            {/* Scrollable Container dengan Native Vertical Snap Scrolling */}
+            <div
+              ref={containerRef}
+              className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar bg-black sm:rounded-3xl shadow-2xl shadow-purple-950/80 sm:border sm:border-purple-500/30 relative"
+            >
+              {videos.map((vid, idx) => (
+                <ReelItem
+                  key={vid.id}
+                  video={vid}
+                  isActive={idx === activeIndex}
+                  isMuted={isMuted}
+                  toggleMute={() => setIsMuted((m) => !m)}
+                  liked={Boolean(likedVideos[vid.id])}
+                  onToggleLike={() => toggleLike(vid.id)}
+                  onShare={() => handleShare(vid)}
+                  copied={copiedId === vid.id}
+                  formatNumber={formatNumber}
+                  index={idx}
+                  total={videos.length}
                 />
+              ))}
+            </div>
 
-                {/* Pause Indicator overlay */}
-                {!isPlaying && (
-                  <div
-                    onClick={togglePlay}
-                    className="absolute inset-0 bg-black/40 flex items-center justify-center cursor-pointer transition-opacity z-10"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-purple-600/80 text-white flex items-center justify-center shadow-lg backdrop-blur-sm">
-                      <Play size={28} className="translate-x-0.5" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Top Controls: Sound & Index Info */}
-                <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 flex items-center justify-between z-20 pointer-events-none">
-                  <div className="px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] text-white font-medium">
-                    {currentIndex + 1} / {videos.length}
-                  </div>
-                  <button
-                    onClick={toggleMute}
-                    className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white hover:bg-black/70 pointer-events-auto transition active:scale-95"
-                  >
-                    {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-                  </button>
-                </div>
-
-                {/* Right Side Social Overlay Buttons: Positioned safely above mobile bottom nav */}
-                <div className="absolute right-2.5 sm:right-3 bottom-24 sm:bottom-16 flex flex-col items-center gap-4 sm:gap-5 z-20">
-                  {/* Author Avatar with Plus Badge */}
-                  <div className="relative group cursor-pointer" title={`@${currentVideo.author.unique_id}`}>
-                    <img
-                      src={currentVideo.author.avatar}
-                      alt={currentVideo.author.nickname}
-                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-full border-2 border-white object-cover shadow-lg"
-                    />
-                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#7c3aed] text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-md">
-                      +
-                    </div>
-                  </div>
-
-                  {/* Like Button */}
-                  <button
-                    onClick={() => toggleLike(currentVideo.id)}
-                    className="flex flex-col items-center gap-1 text-white active:scale-125 hover:scale-110 transition-transform"
-                  >
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md transition ${
-                        likedVideos[currentVideo.id]
-                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/50'
-                          : 'bg-black/50 border border-white/15 text-white hover:bg-white/20'
-                      }`}
-                    >
-                      <Heart
-                        size={19}
-                        fill={likedVideos[currentVideo.id] ? 'currentColor' : 'none'}
-                        className={likedVideos[currentVideo.id] ? 'text-white' : ''}
-                      />
-                    </div>
-                    <span className="text-[10px] sm:text-[11px] font-bold drop-shadow">
-                      {formatNumber(
-                        currentVideo.digg_count + (likedVideos[currentVideo.id] ? 1 : 0)
-                      )}
-                    </span>
-                  </button>
-
-                  {/* Comment Button */}
-                  <div className="flex flex-col items-center gap-1 text-white">
-                    <div className="w-10 h-10 rounded-full bg-black/50 border border-white/15 flex items-center justify-center backdrop-blur-md">
-                      <MessageCircle size={19} />
-                    </div>
-                    <span className="text-[10px] sm:text-[11px] font-bold drop-shadow">
-                      {formatNumber(currentVideo.comment_count)}
-                    </span>
-                  </div>
-
-                  {/* Share Button */}
-                  <button
-                    onClick={() => handleShare(currentVideo)}
-                    className="flex flex-col items-center gap-1 text-white hover:scale-110 active:scale-95 transition-transform"
-                    title="Bagikan Video"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-black/50 border border-white/15 flex items-center justify-center backdrop-blur-md">
-                      {copiedId === currentVideo.id ? <Check size={17} className="text-emerald-400" /> : <Share2 size={19} />}
-                    </div>
-                    <span className="text-[10px] font-bold drop-shadow">
-                      {copiedId === currentVideo.id ? 'Tersalin' : formatNumber(currentVideo.share_count)}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Bottom Video Info & Music Details: Positioned with safe bottom padding */}
-                <div className="absolute left-3 sm:left-4 right-16 bottom-20 sm:bottom-5 z-20 space-y-1.5 pointer-events-auto">
-                  {/* Creator Handle */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="font-bold text-sm text-white drop-shadow-md hover:underline cursor-pointer">
-                      @{currentVideo.author.nickname}
-                    </h3>
-                    <span className="text-[10px] text-purple-300 font-mono">
-                      #{currentVideo.author.unique_id}
-                    </span>
-                  </div>
-
-                  {/* Video Caption */}
-                  <p className="text-xs text-white/95 line-clamp-2 leading-relaxed drop-shadow-md">
-                    {currentVideo.title}
-                  </p>
-
-                  {/* Music Info */}
-                  <div className="flex items-center gap-2 text-[11px] text-purple-200/90 pt-0.5">
-                    <Music size={12} className="shrink-0 animate-pulse text-[#c084fc]" />
-                    <span className="truncate">
-                      {currentVideo.music_info?.title || 'Suara Asli'} • {currentVideo.music_info?.author || currentVideo.author.nickname}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Up/Down Navigation Floating Buttons (Desktop) */}
-                <div className="hidden lg:flex absolute -right-16 top-1/2 -translate-y-1/2 flex-col gap-3 z-30">
-                  <button
-                    onClick={handlePrevVideo}
-                    disabled={currentIndex === 0}
-                    className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
-                    title="Video Sebelumnya (Arrow Up)"
-                  >
-                    <ChevronUp size={22} />
-                  </button>
-                  <button
-                    onClick={handleNextVideo}
-                    disabled={currentIndex === videos.length - 1}
-                    className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
-                    title="Video Selanjutnya (Arrow Down)"
-                  >
-                    <ChevronDown size={22} />
-                  </button>
-                </div>
-              </>
-            )}
+            {/* Desktop Up/Down Navigation Floating Buttons */}
+            <div className="hidden lg:flex absolute -right-16 top-1/2 -translate-y-1/2 flex-col gap-3 z-30">
+              <button
+                onClick={handlePrevVideo}
+                disabled={activeIndex === 0}
+                className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
+                title="Video Sebelumnya (Arrow Up / Scroll Up)"
+              >
+                <ChevronUp size={22} />
+              </button>
+              <button
+                onClick={handleNextVideo}
+                disabled={activeIndex === videos.length - 1}
+                className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
+                title="Video Selanjutnya (Arrow Down / Scroll Down)"
+              >
+                <ChevronDown size={22} />
+              </button>
+            </div>
           </div>
         ) : (
           /* ================= GRID EXPLORER VIEW ================= */
@@ -505,8 +559,8 @@ export default function MediaFeedPage() {
                 <div
                   key={vid.id}
                   onClick={() => {
-                    setCurrentIndex(idx);
                     setViewMode('reels');
+                    setTimeout(() => scrollToVideo(idx), 50);
                   }}
                   className="group relative aspect-[9/16] bg-[#1a152b] rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer border border-purple-500/20 hover:border-purple-500/60 transition-all hover:scale-[1.02] shadow-lg"
                 >
@@ -558,20 +612,20 @@ export default function MediaFeedPage() {
             <div className="flex items-center gap-1.5 border-l border-purple-500/30 pl-3">
               <button
                 onClick={handlePrevVideo}
-                disabled={currentIndex === 0}
+                disabled={activeIndex === 0}
                 className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
-                title="Sebelumnya"
+                title="Sebelumnya (Scroll Up)"
               >
                 <ChevronUp size={18} />
               </button>
               <span className="text-[10px] font-mono text-purple-300">
-                {currentIndex + 1}/{videos.length}
+                {activeIndex + 1}/{videos.length}
               </span>
               <button
                 onClick={handleNextVideo}
-                disabled={currentIndex === videos.length - 1}
+                disabled={activeIndex === videos.length - 1}
                 className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
-                title="Selanjutnya"
+                title="Selanjutnya (Scroll Down)"
               >
                 <ChevronDown size={18} />
               </button>
