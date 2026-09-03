@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn, Film } from 'lucide-react';
+import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn, Film, Menu } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
@@ -24,7 +24,7 @@ export function SidebarHeader({
 }: SidebarHeaderProps) {
   const router = useRouter();
   const { user, setUser } = useAuthStore();
-  const { theme, toggleTheme, setActiveChatId, setChats } = useChatStore();
+  const { theme, toggleTheme, setActiveChatId, setChats, setMobileSidebarOpen } = useChatStore();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -52,8 +52,16 @@ export function SidebarHeader({
 
   return (
     <header className="h-16 px-4 bg-[var(--wa-header-bg)] flex items-center justify-between border-b border-[var(--wa-border)] shrink-0 select-none backdrop-blur-md">
-      {/* Left: User Avatar & App Title */}
-      <div className="flex items-center gap-3">
+      {/* Left: Mobile Menu Trigger & User Avatar & App Title */}
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          className="md:hidden p-1.5 rounded-xl bg-white/5 hover:bg-purple-600/20 text-purple-300 hover:text-white transition"
+          title="Buka Menu Navigasi"
+        >
+          <Menu size={20} />
+        </button>
+
         <div className="cursor-pointer" onClick={onOpenProfile} title="Lihat Profil">
           <Avatar
             src={user?.avatar_url}

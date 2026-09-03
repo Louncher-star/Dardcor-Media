@@ -9,6 +9,7 @@ import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { fetchCloudProfiles, saveRegisteredUserToCloud } from '@/lib/services/authService';
 import { fetchUserChats, saveUserChats, broadcastLocalSync } from '@/lib/services/chatService';
+import { toValidUuid } from '@/lib/utils/uuidUtils';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -29,25 +30,29 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
   useEffect(() => {
     if (!isOpen) return;
 
-    const fetchUsers = async () => {
+    let isMounted = true;
+    const loadProfiles = async () => {
       setIsLoading(true);
       try {
-        const allProfiles = await fetchCloudProfiles();
-        // Saring: Jangan tampilkan akun yang sedang login sendiri
-        const realUsers = allProfiles.filter(
+        const cloudUsers = await fetchCloudProfiles();
+        const otherUsers = cloudUsers.filter(
           (u) => u.id !== user?.id && u.username?.toLowerCase() !== user?.username?.toLowerCase()
         );
-        setUsersList(realUsers);
+        if (isMounted) {
+          setUsersList(otherUsers);
+        }
       } catch (err) {
-        console.error('Error fetching real contacts from database:', err);
-        setUsersList([]);
+        console.error('Error fetching users for new chat:', err);
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     };
 
-    fetchUsers();
-  }, [isOpen, user?.id, user?.username]);
+    loadProfiles();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, user?.id]);
 
   if (!isOpen) return null;
 
@@ -58,16 +63,21 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
   );
 
   const handleSelectUser = async (targetUser: Profile) => {
-    if (!user || isCreatingChat) return;
+    if (!user) return;
     setIsCreatingChat(targetUser.id);
 
     try {
-      // 1. Cek apakah obrolan 1-on-1 dengan pengguna ini sudah pernah dibuat sebelumnya di state lokal
+      const safeUserId = toValidUuid(user.id);
+      const safeTargetId = toValidUuid(targetUser.id);
+
+      // 1. Cek dulu apakah obrolan bersama sudah ada di state lokal
       const existingChat = chats.find(
         (c) =>
           !c.is_group &&
           (c.other_participant?.id === targetUser.id ||
-            c.participants?.some((p) => p.user_id === targetUser.id))
+            c.other_participant?.id === safeTargetId ||
+            c.other_participant?.username === targetUser.username ||
+            c.participants?.some((p) => p.user_id === targetUser.id || p.user_id === safeTargetId))
       );
 
       if (existingChat) {
@@ -82,46 +92,56 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
         const { data: myParts } = await supabase
           .from('chat_participants')
           .select('chat_id')
-          .eq('user_id', user.id);
+          .eq('user_id', safeUserId);
 
         if (myParts && myParts.length > 0) {
           const myChatIds = myParts.map((p) => p.chat_id);
           const { data: theirParts } = await supabase
             .from('chat_participants')
             .select('chat_id')
-            .eq('user_id', targetUser.id)
+            .eq('user_id', safeTargetId)
             .in('chat_id', myChatIds);
 
           if (theirParts && theirParts.length > 0) {
-            const matchedChatId = theirParts[0].chat_id;
-            const freshChats = await fetchUserChats(user.id);
-            setChats(freshChats);
-            setActiveChatId(matchedChatId);
-            onClose();
-            return;
+            const sharedChatIds = theirParts.map((t) => t.chat_id);
+            const { data: sharedChats } = await supabase
+              .from('chats')
+              .select('id, last_message_at')
+              .in('id', sharedChatIds)
+              .eq('is_group', false)
+              .order('last_message_at', { ascending: false })
+              .limit(1);
+
+            if (sharedChats && sharedChats.length > 0) {
+              const matchedChatId = sharedChats[0].id;
+              const freshChats = await fetchUserChats(user.id);
+              setChats(freshChats);
+              setActiveChatId(matchedChatId);
+              onClose();
+              return;
+            }
           }
         }
       }
 
-      // 3. Generate UUID standar PostgreSQL jika benar-benar obrolan baru
-      const newChatId =
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : 'c0000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
+      // 3. Generate UUID deterministik unik untuk pasangan 1-on-1 ini
+      // Mencegah dua orang membuat chat ganda secara bersamaan
+      const pairKey = [safeUserId, safeTargetId].sort().join('_');
+      const newChatId = toValidUuid('direct_' + pairKey);
 
       let createdChat: Chat = {
         id: newChatId,
         is_group: false,
-        created_by: user.id,
+        created_by: safeUserId,
         last_message_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         other_participant: targetUser,
         participants: [
           {
-            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cp_${Date.now()}_1`,
+            id: toValidUuid('cp_' + safeUserId + '_' + newChatId),
             chat_id: newChatId,
-            user_id: user.id,
+            user_id: safeUserId,
             role: 'member',
             is_pinned: false,
             is_archived: false,
@@ -131,9 +151,9 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
             profile: user,
           },
           {
-            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cp_${Date.now()}_2`,
+            id: toValidUuid('cp_' + safeTargetId + '_' + newChatId),
             chat_id: newChatId,
-            user_id: targetUser.id,
+            user_id: safeTargetId,
             role: 'member',
             is_pinned: false,
             is_archived: false,
@@ -158,7 +178,7 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
           .upsert({
             id: newChatId,
             is_group: false,
-            created_by: user.id,
+            created_by: safeUserId,
             last_message_at: new Date().toISOString(),
           })
           .select()
@@ -171,8 +191,8 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
           };
 
           await supabase.from('chat_participants').upsert([
-            { chat_id: newChatData.id, user_id: user.id },
-            { chat_id: newChatData.id, user_id: targetUser.id },
+            { chat_id: newChatData.id, user_id: safeUserId },
+            { chat_id: newChatData.id, user_id: safeTargetId },
           ]);
 
           // Broadcast channel agar penerima langsung memuat obrolan baru di layarnya

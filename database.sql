@@ -257,6 +257,9 @@ DROP POLICY IF EXISTS "Chat participants can update chat info" ON public.chats;
 DROP POLICY IF EXISTS "Anyone can update chats" ON public.chats;
 CREATE POLICY "Anyone can update chats" ON public.chats FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Anyone can delete chats" ON public.chats;
+CREATE POLICY "Anyone can delete chats" ON public.chats FOR DELETE USING (true);
+
 -- Chat Participants:
 DROP POLICY IF EXISTS "Users can view participants of their chats" ON public.chat_participants;
 DROP POLICY IF EXISTS "Anyone can view chat participants" ON public.chat_participants;
@@ -265,6 +268,9 @@ CREATE POLICY "Anyone can view chat participants" ON public.chat_participants FO
 DROP POLICY IF EXISTS "Users can join or be added to chats" ON public.chat_participants;
 DROP POLICY IF EXISTS "Anyone can add chat participants" ON public.chat_participants;
 CREATE POLICY "Anyone can add chat participants" ON public.chat_participants FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can delete chat participants" ON public.chat_participants;
+CREATE POLICY "Anyone can delete chat participants" ON public.chat_participants FOR DELETE USING (true);
 
 -- Messages:
 DROP POLICY IF EXISTS "Users can view messages in their chats" ON public.messages;
@@ -275,6 +281,9 @@ DROP POLICY IF EXISTS "Users can send messages to their chats" ON public.message
 DROP POLICY IF EXISTS "Anyone can send messages" ON public.messages;
 CREATE POLICY "Anyone can send messages" ON public.messages FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Anyone can delete messages" ON public.messages;
+CREATE POLICY "Anyone can delete messages" ON public.messages FOR DELETE USING (true);
+
 -- Reactions & Statuses:
 DROP POLICY IF EXISTS "Anyone can view reactions" ON public.message_reactions;
 CREATE POLICY "Anyone can view reactions" ON public.message_reactions FOR SELECT USING (true);
@@ -282,17 +291,95 @@ CREATE POLICY "Anyone can view reactions" ON public.message_reactions FOR SELECT
 DROP POLICY IF EXISTS "Anyone can insert reactions" ON public.message_reactions;
 CREATE POLICY "Anyone can insert reactions" ON public.message_reactions FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Anyone can delete reactions" ON public.message_reactions;
+CREATE POLICY "Anyone can delete reactions" ON public.message_reactions FOR DELETE USING (true);
+
 DROP POLICY IF EXISTS "Anyone can view statuses" ON public.message_statuses;
 CREATE POLICY "Anyone can view statuses" ON public.message_statuses FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Anyone can insert statuses" ON public.message_statuses;
 CREATE POLICY "Anyone can insert statuses" ON public.message_statuses FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Anyone can delete statuses" ON public.message_statuses;
+CREATE POLICY "Anyone can delete statuses" ON public.message_statuses FOR DELETE USING (true);
+
 DROP POLICY IF EXISTS "Anyone can view stories" ON public.user_statuses;
 CREATE POLICY "Anyone can view stories" ON public.user_statuses FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Anyone can insert stories" ON public.user_statuses;
 CREATE POLICY "Anyone can insert stories" ON public.user_statuses FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can delete stories" ON public.user_statuses;
+CREATE POLICY "Anyone can delete stories" ON public.user_statuses FOR DELETE USING (true);
+
+-- ============================================================================
+-- 11. FUNGSI RESOLUSI OBROLAN 1-ON-1 TANPA DUPLIKASI
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_or_create_direct_chat(p_user1 UUID, p_user2 UUID)
+RETURNS UUID AS $$
+DECLARE
+    found_chat_id UUID;
+    new_chat_id UUID;
+BEGIN
+    -- 1. Cari obrolan langsung yang sudah ada antara kedua user
+    SELECT cp1.chat_id INTO found_chat_id
+    FROM public.chat_participants cp1
+    JOIN public.chat_participants cp2 ON cp1.chat_id = cp2.chat_id
+    JOIN public.chats c ON c.id = cp1.chat_id
+    WHERE c.is_group = false
+      AND cp1.user_id = p_user1
+      AND cp2.user_id = p_user2
+    LIMIT 1;
+
+    IF found_chat_id IS NOT NULL THEN
+        RETURN found_chat_id;
+    END IF;
+
+    -- 2. Jika belum ada, buat obrolan baru secara atomik
+    new_chat_id := gen_random_uuid();
+    INSERT INTO public.chats (id, is_group, created_by, last_message_at)
+    VALUES (new_chat_id, false, p_user1, timezone('utc'::text, now()));
+
+    INSERT INTO public.chat_participants (chat_id, user_id, role)
+    VALUES 
+        (new_chat_id, p_user1, 'member'),
+        (new_chat_id, p_user2, 'member')
+    ON CONFLICT (chat_id, user_id) DO NOTHING;
+
+    RETURN new_chat_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 12. PEMBERSIHAN OTOMATIS OBROLAN DUPLIKAT YANG PERNAH TERSIMPAN
+-- ============================================================================
+DO $$
+DECLARE
+    rec RECORD;
+    primary_id UUID;
+    dup_id UUID;
+BEGIN
+    FOR rec IN 
+        SELECT cp1.user_id AS u1, cp2.user_id AS u2, array_agg(cp1.chat_id ORDER BY c.last_message_at DESC) AS chat_ids
+        FROM public.chat_participants cp1
+        JOIN public.chat_participants cp2 ON cp1.chat_id = cp2.chat_id AND cp1.user_id < cp2.user_id
+        JOIN public.chats c ON c.id = cp1.chat_id
+        WHERE c.is_group = false
+        GROUP BY cp1.user_id, cp2.user_id
+        HAVING count(cp1.chat_id) > 1
+    LOOP
+        primary_id := rec.chat_ids[1];
+        FOREACH dup_id IN ARRAY rec.chat_ids[2:array_length(rec.chat_ids, 1)]
+        LOOP
+            -- Pindahkan semua pesan ke obrolan utama
+            UPDATE public.messages SET chat_id = primary_id WHERE chat_id = dup_id;
+            -- Hapus partisipan chat duplikat
+            DELETE FROM public.chat_participants WHERE chat_id = dup_id;
+            -- Hapus obrolan duplikat
+            DELETE FROM public.chats WHERE id = dup_id;
+        END LOOP;
+    END LOOP;
+END $$;
 
 -- ============================================================================
 -- AKTIFKAN SUPABASE REALTIME REPLICATION
@@ -309,5 +396,10 @@ END $$;
 
 DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.chats;
+EXCEPTION WHEN others THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_participants;
 EXCEPTION WHEN others THEN null;
 END $$;

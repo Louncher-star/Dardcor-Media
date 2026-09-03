@@ -11,8 +11,10 @@ interface ChatState {
   searchQuery: string;
   chatFilter: 'all' | 'unread' | 'favorites' | 'groups';
   theme: 'dark' | 'light';
+  isMobileSidebarOpen: boolean;
 
   // Actions
+  setMobileSidebarOpen: (open: boolean) => void;
   setActiveChatId: (chatId: string | null) => void;
   setChats: (chats: Chat[]) => void;
   addChat: (chat: Chat) => void;
@@ -41,6 +43,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   searchQuery: '',
   chatFilter: 'all',
   theme: 'dark', // Default ke tema gelap otentik WhatsApp Web
+  isMobileSidebarOpen: false,
+
+  setMobileSidebarOpen: (isMobileSidebarOpen) => set({ isMobileSidebarOpen }),
 
   setActiveChatId: (activeChatId) => {
     set({ activeChatId, replyingToMessage: null });

@@ -19,9 +19,11 @@ import {
   LayoutGrid, 
   Smartphone,
   Check,
-  Sparkles
+  Sparkles,
+  Menu
 } from 'lucide-react';
 import { getCurrentUser } from '@/lib/services/authService';
+import { useChatStore } from '@/lib/store/useChatStore';
 import { Profile } from '@/types';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
 import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
@@ -217,6 +219,7 @@ function ReelItem({
 
 export default function MediaFeedPage() {
   const router = useRouter();
+  const { setMobileSidebarOpen } = useChatStore();
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
@@ -414,14 +417,19 @@ export default function MediaFeedPage() {
       <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
         {/* Top Header */}
         <header className="h-14 sm:h-16 px-3 sm:px-6 bg-[#0e0a1b]/95 backdrop-blur-md border-b border-purple-500/20 flex items-center justify-between shrink-0 z-20 shadow-md">
-          {/* Left: Mobile Brand & Quick Header Info */}
-          <div className="flex items-center gap-3 min-w-0">
+          {/* Left: Mobile Menu Trigger & Mobile Brand & Quick Header Info */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden p-1.5 rounded-xl bg-white/5 hover:bg-purple-600/20 text-purple-300 hover:text-white transition"
+              title="Buka Menu Navigasi"
+            >
+              <Menu size={20} />
+            </button>
+
             <Link href="/" className="md:hidden flex items-center gap-2 group shrink-0">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40">
-                <Film size={16} className="text-white" />
-              </div>
               <span className="font-extrabold text-sm tracking-tight text-white">
-                Dardcor
+                Dardcor Media
               </span>
             </Link>
 

@@ -87,7 +87,7 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
 
             let otherParticipant = undefined;
             if (!chat.is_group) {
-              const other = chatPartis.find((p) => p.user_id !== userId);
+              const other = chatPartis.find((p) => p.user_id !== userId && p.user_id !== safeUserId);
               if (other) {
                 otherParticipant = profileMap.get(other.user_id);
               }
@@ -104,12 +104,35 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
             };
           });
 
-          loadedChats.sort(
+          // DEDUPLIKASI RELASI CHAT 1-ON-1:
+          // Pastikan untuk setiap kontak lawan bicara HANYA ADA 1 obrolan di daftar obrolan.
+          // Jika terdapat lebih dari 1 obrolan dengan kontak yang sama, satukan dan pilih yang terbaru.
+          const deduplicatedChatsMap = new Map<string, Chat>();
+          for (const c of loadedChats) {
+            if (!c.is_group && c.other_participant?.id) {
+              const partnerKey = c.other_participant.id;
+              const existing = deduplicatedChatsMap.get(partnerKey);
+              if (!existing) {
+                deduplicatedChatsMap.set(partnerKey, c);
+              } else {
+                const existingTime = new Date(existing.last_message_at || 0).getTime();
+                const newTime = new Date(c.last_message_at || 0).getTime();
+                if (newTime > existingTime) {
+                  deduplicatedChatsMap.set(partnerKey, c);
+                }
+              }
+            } else {
+              deduplicatedChatsMap.set(c.id, c);
+            }
+          }
+
+          const uniqueChats = Array.from(deduplicatedChatsMap.values());
+          uniqueChats.sort(
             (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
           );
 
-          saveUserChats(userId, loadedChats);
-          return loadedChats;
+          saveUserChats(userId, uniqueChats);
+          return uniqueChats;
         }
       }
     } catch (err) {
@@ -121,7 +144,20 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
-    return raw ? JSON.parse(raw) : [];
+    const localChats: Chat[] = raw ? JSON.parse(raw) : [];
+    const deduplicatedMap = new Map<string, Chat>();
+    for (const c of localChats) {
+      if (!c.is_group && c.other_participant?.id) {
+        const partnerKey = c.other_participant.id;
+        const existing = deduplicatedMap.get(partnerKey);
+        if (!existing || new Date(c.last_message_at || 0).getTime() > new Date(existing.last_message_at || 0).getTime()) {
+          deduplicatedMap.set(partnerKey, c);
+        }
+      } else {
+        deduplicatedMap.set(c.id, c);
+      }
+    }
+    return Array.from(deduplicatedMap.values());
   } catch {
     return [];
   }
@@ -134,16 +170,52 @@ export function saveUserChats(userId: string, chats: Chat[]) {
   broadcastLocalSync('CHATS_UPDATED', { userId, chats });
 }
 
-// 3. Ambil pesan dalam suatu chat
+// 3. Ambil pesan dalam suatu chat (Disatukan otomatis jika pernah ada obrolan duplikat)
 export async function fetchChatMessages(chatId: string): Promise<Message[]> {
+  const safeChatId = toValidUuid(chatId);
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
-      // A. Ambil pesan murni
+
+      // Cek apakah chat ini 1-on-1 untuk menyatukan histori chat jika pernah ada obrolan duplikat
+      let relevantChatIds = [safeChatId];
+      const { data: currentChat } = await supabase
+        .from('chats')
+        .select('is_group')
+        .eq('id', safeChatId)
+        .maybeSingle();
+
+      if (currentChat && !currentChat.is_group) {
+        const { data: myParts } = await supabase
+          .from('chat_participants')
+          .select('user_id')
+          .eq('chat_id', safeChatId);
+
+        if (myParts && myParts.length === 2) {
+          const [u1, u2] = [myParts[0].user_id, myParts[1].user_id];
+          const { data: allShared } = await supabase
+            .from('chat_participants')
+            .select('chat_id, user_id')
+            .in('user_id', [u1, u2]);
+
+          if (allShared) {
+            const counts: Record<string, number> = {};
+            for (const p of allShared) {
+              counts[p.chat_id] = (counts[p.chat_id] || 0) + 1;
+            }
+            const shared = Object.keys(counts).filter((id) => counts[id] >= 2);
+            if (shared.length > 0) {
+              relevantChatIds = shared;
+            }
+          }
+        }
+      }
+
+      // A. Ambil pesan murni dari semua chat ID terkait pasangan ini
       const { data: messagesData, error: msgError } = await supabase
         .from('messages')
         .select('*')
-        .eq('chat_id', chatId)
+        .in('chat_id', relevantChatIds)
         .order('created_at', { ascending: true });
 
       if (msgError) {
