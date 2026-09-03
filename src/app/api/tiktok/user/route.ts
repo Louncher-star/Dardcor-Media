@@ -15,10 +15,19 @@ export interface TikTokScrapedUser {
   sec_uid?: string;
 }
 
+// Cache for scraped profiles
+const userCache = new Map<string, { timestamp: number; data: TikTokScrapedUser }>();
+const USER_CACHE_TTL = 30 * 60 * 1000; // 30 mins
+
 // Fungsi Scraper Real TikTok Profil Pengguna
 export async function scrapeTikTokUserProfile(rawUsername: string): Promise<TikTokScrapedUser | null> {
-  const username = rawUsername.replace(/^@+/, '').trim();
+  const username = rawUsername.replace(/^@+/, '').trim().toLowerCase();
   if (!username) return null;
+
+  const cached = userCache.get(username);
+  if (cached && Date.now() - cached.timestamp < USER_CACHE_TTL) {
+    return cached.data;
+  }
 
   // Header browser simulasi mobile yang terbukti sukses melewati proteksi TikTok
   const requestHeaders = {
@@ -61,7 +70,7 @@ export async function scrapeTikTokUserProfile(rawUsername: string): Promise<TikT
             const u = userDetail.user;
             const stats = userDetail.stats || {};
 
-            return {
+            const result: TikTokScrapedUser = {
               unique_id: String(u.uniqueId || username),
               nickname: String(u.nickname || u.uniqueId || username),
               avatar_url: String(
@@ -78,6 +87,8 @@ export async function scrapeTikTokUserProfile(rawUsername: string): Promise<TikT
               video_count: Number(stats.videoCount || 0),
               sec_uid: u.secUid ? String(u.secUid) : undefined,
             };
+            userCache.set(username, { timestamp: Date.now(), data: result });
+            return result;
           }
         } catch (parseErr) {
           console.warn('Gagal parse JSON rehydration TikTok:', parseErr);
@@ -95,7 +106,7 @@ export async function scrapeTikTokUserProfile(rawUsername: string): Promise<TikT
           cleanNickname = ogTitle.split('(@')[0].trim() || username;
         }
 
-        return {
+        const fallbackResult: TikTokScrapedUser = {
           unique_id: username,
           nickname: cleanNickname,
           avatar_url: ogImage || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + username,
@@ -106,6 +117,8 @@ export async function scrapeTikTokUserProfile(rawUsername: string): Promise<TikT
           heart_count: 0,
           video_count: 0,
         };
+        userCache.set(username, { timestamp: Date.now(), data: fallbackResult });
+        return fallbackResult;
       }
     } catch (fetchErr) {
       console.warn(`Gagal scrape TikTok profil dari ${url}:`, fetchErr);
