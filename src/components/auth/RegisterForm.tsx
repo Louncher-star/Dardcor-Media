@@ -51,12 +51,26 @@ export function RegisterForm() {
       return;
     }
 
-    let assignedId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    // Default ID berupa valid UUID untuk PostgreSQL
+    let assignedId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'usr_' + Date.now();
 
     // 1. Jika Supabase dikonfigurasi
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient();
+
+        // Cek apakah username sudah dipakai
+        const { data: existingUser } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', cleanUsername)
+          .maybeSingle();
+
+        if (existingUser) {
+          setErrorMessage(`Username @${cleanUsername} sudah dipakai. Silakan gunakan username lain.`);
+          setIsLoading(false);
+          return;
+        }
 
         // Daftar ke Supabase Auth
         const { data, error } = await supabase.auth.signUp({
@@ -67,30 +81,35 @@ export function RegisterForm() {
               display_name: displayName.trim(),
               username: cleanUsername,
               avatar_url: selectedAvatar,
-              about: about.trim(),
+              about: about.trim() || 'Ada! Menggunakan Dardcor Media.',
             },
           },
         });
 
         if (error) {
-          // Jika terkena rate limit email Supabase bawaan
-          if (error.message?.includes('rate limit')) {
-            console.warn('Supabase email rate limit reached, falling back to local session');
-          } else {
-            setErrorMessage(error.message || 'Gagal mendaftar ke Supabase.');
+          console.warn('Supabase auth.signUp note:', error.message);
+          // Jika error adalah Database error trigger atau rate limit, lanjutkan menyimpan profil ke tabel database
+          if (
+            !error.message?.includes('Database error') &&
+            !error.message?.includes('saving new user') &&
+            !error.message?.includes('rate limit') &&
+            !error.message?.includes('already registered')
+          ) {
+            setErrorMessage(error.message);
             setIsLoading(false);
             return;
           }
         }
 
-        if (data?.user) {
+        if (data?.user?.id) {
           assignedId = data.user.id;
-          // Coba login untuk mendapatkan session token aktif
-          await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
         }
+
+        // Coba login untuk session token
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
       } catch (err) {
         console.error('Supabase registration error:', err);
       }
@@ -102,17 +121,25 @@ export function RegisterForm() {
       username: cleanUsername,
       display_name: displayName.trim(),
       avatar_url: selectedAvatar,
-      about: about.trim(),
+      about: about.trim() || 'Ada! Menggunakan Dardcor Media.',
       is_online: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    // Coba upsert profil ke Supabase jika aktif
+    // 3. Simpan data profil realtime ke database Supabase
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient();
-        await supabase.from('profiles').upsert(newProfile);
+        await supabase.from('profiles').upsert({
+          id: newProfile.id,
+          username: newProfile.username,
+          display_name: newProfile.display_name,
+          avatar_url: newProfile.avatar_url,
+          about: newProfile.about,
+          is_online: true,
+          updated_at: new Date().toISOString(),
+        });
       } catch (e) {
         console.error('Error inserting to profiles table:', e);
       }

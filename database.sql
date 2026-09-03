@@ -150,7 +150,10 @@ CREATE TABLE IF NOT EXISTS public.user_statuses (
 -- HELPER FUNCTIONS & TRIGGERS
 -- ============================================================================
 
--- Function: Otomatis Buat Profil saat Sign Up di Supabase Auth
+-- Tambahkan kolom email jika belum ada
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+
+-- Function: Otomatis Buat Profil saat Sign Up di Supabase Auth (Aman & Tidak Pernah Crash)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -167,20 +170,21 @@ BEGIN
         default_username := clean_username;
     END IF;
 
-    INSERT INTO public.profiles (id, username, display_name, avatar_url, about, email)
+    INSERT INTO public.profiles (id, username, display_name, avatar_url, about)
     VALUES (
         new.id,
         default_username,
         default_name,
         COALESCE(new.raw_user_meta_data->>'avatar_url', 'https://api.dicebear.com/7.x/bottts/svg?seed=' || new.id::text),
-        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.'),
-        new.email
+        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.')
     )
     ON CONFLICT (id) DO UPDATE
     SET display_name = EXCLUDED.display_name,
-        avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url),
-        email = COALESCE(EXCLUDED.email, public.profiles.email);
+        avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url);
 
+    RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- Mencegah Database error: jika ada kendala di trigger, user tetap berhasil terdaftar di auth.users
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -58,7 +58,6 @@ export async function saveRegisteredUserToCloud(profile: Profile, email?: string
         is_online: true,
         updated_at: new Date().toISOString(),
       };
-      if (email) payload.email = email;
 
       const { error } = await supabase.from('profiles').upsert(payload);
       if (!error) return true;
