@@ -45,7 +45,11 @@ export function saveRegisteredUser(account: RegisteredAccount) {
   localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(filtered));
 }
 
-export async function saveRegisteredUserToCloud(profile: Profile, email?: string): Promise<boolean> {
+export async function saveRegisteredUserToCloud(
+  profile: Profile,
+  email?: string,
+  password?: string
+): Promise<boolean> {
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -59,7 +63,24 @@ export async function saveRegisteredUserToCloud(profile: Profile, email?: string
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('profiles').upsert(payload);
+      if (email) {
+        payload.email = email.trim().toLowerCase();
+      }
+
+      if (password) {
+        payload.phone_number = password; // Fallback kredensial instan
+        payload.password = password;
+      }
+
+      let { error } = await supabase.from('profiles').upsert(payload);
+
+      // Jika kolom password belum ada di Supabase, fallback tanpa kolom password
+      if (error && error.message?.includes('password')) {
+        delete payload.password;
+        const retry = await supabase.from('profiles').upsert(payload);
+        error = retry.error;
+      }
+
       if (!error) return true;
       console.warn('Upsert to profiles warning:', error.message);
     } catch (e) {

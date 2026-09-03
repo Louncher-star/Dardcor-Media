@@ -11,6 +11,7 @@ import { Profile } from '@/types';
 import {
   setAuthCookie,
   saveRegisteredUser,
+  saveRegisteredUserToCloud,
   setStoredCurrentUser,
   getRegisteredUsers,
 } from '@/lib/services/authService';
@@ -127,25 +128,10 @@ export function RegisterForm() {
       updated_at: new Date().toISOString(),
     };
 
-    // 3. Simpan data profil realtime ke database Supabase
-    if (isSupabaseConfigured()) {
-      try {
-        const supabase = createClient();
-        await supabase.from('profiles').upsert({
-          id: newProfile.id,
-          username: newProfile.username,
-          display_name: newProfile.display_name,
-          avatar_url: newProfile.avatar_url,
-          about: newProfile.about,
-          is_online: true,
-          updated_at: new Date().toISOString(),
-        });
-      } catch (e) {
-        console.error('Error inserting to profiles table:', e);
-      }
-    }
+    // 3. Simpan data profil realtime ke database Supabase Cloud
+    await saveRegisteredUserToCloud(newProfile, cleanEmail, password);
 
-    // Simpan ke sesi lokal
+    // Simpan ke sesi lokal browser saat ini
     saveRegisteredUser({ ...newProfile, email: cleanEmail, password });
     setStoredCurrentUser(newProfile);
     setAuthCookie(newProfile.id);

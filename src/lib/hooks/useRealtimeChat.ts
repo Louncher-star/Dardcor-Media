@@ -6,11 +6,12 @@ import { useChatStore } from '@/lib/store/useChatStore';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Message, MessageReaction } from '@/types';
 import { playMessageReceivedSound } from '@/lib/utils/soundUtils';
+import { fetchUserChats } from '@/lib/services/chatService';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 export function useRealtimeChat(activeChatId: string | null) {
   const { user } = useAuthStore();
-  const { addMessage, updateMessage, deleteMessage, addReaction, removeReaction } = useChatStore();
+  const { addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setChats } = useChatStore();
 
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) return;
@@ -47,6 +48,14 @@ export function useRealtimeChat(activeChatId: string | null) {
               }
 
               addMessage(newMessage);
+
+              // Jika chat belum ada di daftar sidebar, ambil ulang obrolan user
+              const currentChats = useChatStore.getState().chats;
+              if (!currentChats.some((c) => c.id === newMessage.chat_id)) {
+                fetchUserChats(user.id).then((fresh) => {
+                  setChats(fresh);
+                });
+              }
 
               // Bunyikan notifikasi jika pesan dari orang lain
               if (newMessage.sender_id !== user.id) {

@@ -150,8 +150,9 @@ CREATE TABLE IF NOT EXISTS public.user_statuses (
 -- HELPER FUNCTIONS & TRIGGERS
 -- ============================================================================
 
--- Tambahkan kolom email jika belum ada
+-- Tambahkan kolom email dan password jika belum ada
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password TEXT;
 
 -- Function: Otomatis Buat Profil saat Sign Up di Supabase Auth (Aman & Tidak Pernah Crash)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -170,16 +171,18 @@ BEGIN
         default_username := clean_username;
     END IF;
 
-    INSERT INTO public.profiles (id, username, display_name, avatar_url, about)
+    INSERT INTO public.profiles (id, username, display_name, avatar_url, about, email)
     VALUES (
         new.id,
         default_username,
         default_name,
         COALESCE(new.raw_user_meta_data->>'avatar_url', 'https://api.dicebear.com/7.x/bottts/svg?seed=' || new.id::text),
-        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.')
+        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.'),
+        new.email
     )
     ON CONFLICT (id) DO UPDATE
     SET display_name = EXCLUDED.display_name,
+        email = COALESCE(EXCLUDED.email, public.profiles.email),
         avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url);
 
     RETURN NEW;

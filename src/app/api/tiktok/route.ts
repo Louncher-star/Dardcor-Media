@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         Accept: 'application/json',
       },
-      next: { revalidate: 60 }, // Cache 60 detik untuk performa cepat
+      cache: 'no-store',
     });
 
     if (!response.ok) {

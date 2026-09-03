@@ -18,9 +18,15 @@ import {
   ChevronDown, 
   LayoutGrid, 
   Smartphone,
-  Check
+  Check,
+  PanelLeftClose,
+  PanelLeftOpen,
+  LogOut,
+  UserCheck,
+  Compass,
+  Sparkles
 } from 'lucide-react';
-import { getCurrentUser } from '@/lib/services/authService';
+import { getCurrentUser, logoutUser, clearAuthCookie } from '@/lib/services/authService';
 import { Profile } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
@@ -36,7 +42,6 @@ interface ReelItemProps {
   copied: boolean;
   formatNumber: (n: number) => string;
   index: number;
-  total: number;
 }
 
 function ReelItem({
@@ -50,7 +55,6 @@ function ReelItem({
   copied,
   formatNumber,
   index,
-  total,
 }: ReelItemProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -61,7 +65,7 @@ function ReelItem({
     if (isActive) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {
-        // Jika autoplay audio diblokir oleh browser (terutama mobile), mute otomatis
+        // Autoplay policy browser fallback
         if (videoRef.current) {
           videoRef.current.muted = true;
           videoRef.current.play().catch(() => {});
@@ -102,7 +106,7 @@ function ReelItem({
         onClick={togglePlay}
       />
 
-      {/* Pause Overlay Indicator */}
+      {/* Pause Indicator Overlay */}
       {!isPlaying && (
         <div
           onClick={togglePlay}
@@ -114,22 +118,20 @@ function ReelItem({
         </div>
       )}
 
-      {/* Top Controls: Index Info & Audio Mute Button */}
-      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 flex items-center justify-between z-20 pointer-events-none">
-        <div className="px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] text-white font-medium">
-          {index + 1} / {total}
-        </div>
+      {/* Top Controls: Audio Mute Button (Angka counter dihapus untuk unlimited scrolling) */}
+      <div className="absolute top-3 sm:top-4 right-3 sm:right-4 flex items-center z-20 pointer-events-none">
         <button
           onClick={toggleMute}
-          className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white hover:bg-black/70 pointer-events-auto transition active:scale-95"
+          className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white hover:bg-black/70 pointer-events-auto transition active:scale-95 shadow-md"
+          title={isMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
         >
           {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
         </button>
       </div>
 
-      {/* Right Side Social Overlay: Love, Comment, Share */}
-      <div className="absolute right-2.5 sm:right-3 bottom-24 sm:bottom-16 flex flex-col items-center gap-4 sm:gap-5 z-20">
-        {/* Author Avatar with Plus Badge */}
+      {/* Right Side Social Overlay: Love, Comment, Share (Tepat di tepi kanan frame video) */}
+      <div className="absolute right-3 sm:right-4 bottom-24 sm:bottom-16 flex flex-col items-center gap-4 sm:gap-5 z-20">
+        {/* Creator Avatar with Follow Badge */}
         <div className="relative group cursor-pointer" title={`@${video.author.unique_id}`}>
           <img
             src={video.author.avatar}
@@ -223,8 +225,13 @@ export default function MediaFeedPage() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
+  // Desktop Sidebar Open/Close State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Video State
   const [videos, setVideos] = useState<TikTokVideoItem[]>([]);
   const [isLoadingVideos, setIsLoadingVideos] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState('ID');
   const [viewMode, setViewMode] = useState<'reels' | 'grid'>('reels');
 
@@ -248,16 +255,15 @@ export default function MediaFeedPage() {
     });
   }, [router]);
 
-  // 2. Fetch video TikTok real-time dari API
+  // 2. Fetch video awal
   const fetchTikTokFeed = async (regionCode: string) => {
     setIsLoadingVideos(true);
     try {
-      const res = await fetch(`/api/tiktok?region=${regionCode}&count=15`);
+      const res = await fetch(`/api/tiktok?region=${regionCode}&count=15&_t=${Date.now()}`);
       const json = await res.json();
       if (json.success && json.data && json.data.length > 0) {
         setVideos(json.data);
         setActiveIndex(0);
-        // Reset scroll position ke paling atas
         if (containerRef.current) {
           containerRef.current.scrollTop = 0;
         }
@@ -273,7 +279,38 @@ export default function MediaFeedPage() {
     fetchTikTokFeed(selectedRegion);
   }, [selectedRegion]);
 
-  // 3. Scroll Listener / IntersectionObserver untuk mendeteksi video yang sedang aktif saat di-scroll
+  // 3. Infinite Scrolling: Tarik video berikutnya secara otomatis (Unlimited Feed)
+  const loadMoreVideos = useCallback(async () => {
+    if (isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const res = await fetch(`/api/tiktok?region=${selectedRegion}&count=15&_t=${Date.now()}`);
+      const json = await res.json();
+      if (json.success && json.data && json.data.length > 0) {
+        setVideos((prev) => {
+          const existingIds = new Set(prev.map((v) => v.id));
+          const uniqueNew = json.data.filter((v: TikTokVideoItem) => !existingIds.has(v.id));
+          if (uniqueNew.length > 0) {
+            return [...prev, ...uniqueNew];
+          }
+          // Jika id sama, generate id unik agar infinite scroll tetap lanjut tanpa henti
+          return [
+            ...prev,
+            ...json.data.map((v: TikTokVideoItem) => ({
+              ...v,
+              id: `${v.id}_${Date.now()}_${Math.random()}`,
+            })),
+          ];
+        });
+      }
+    } catch (err) {
+      console.error('Error loading more videos:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, selectedRegion]);
+
+  // 4. Scroll Listener: Deteksi video aktif dan trigger infinite scroll saat mendekati akhir
   useEffect(() => {
     const container = containerRef.current;
     if (!container || viewMode !== 'reels') return;
@@ -285,11 +322,16 @@ export default function MediaFeedPage() {
       if (index >= 0 && index < videos.length && index !== activeIndex) {
         setActiveIndex(index);
       }
+
+      // Jika user sudah mencapai 3 video terakhir, ambil video baru secara otomatis!
+      if (index >= videos.length - 3 && !isLoadingMore) {
+        loadMoreVideos();
+      }
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [videos.length, activeIndex, viewMode]);
+  }, [videos.length, activeIndex, viewMode, isLoadingMore, loadMoreVideos]);
 
   // Scroll ke video tertentu secara mulus
   const scrollToVideo = useCallback((index: number) => {
@@ -305,6 +347,8 @@ export default function MediaFeedPage() {
   const handleNextVideo = () => {
     if (activeIndex < videos.length - 1) {
       scrollToVideo(activeIndex + 1);
+    } else {
+      loadMoreVideos();
     }
   };
 
@@ -356,6 +400,12 @@ export default function MediaFeedPage() {
     }
   };
 
+  const handleLogout = async () => {
+    await logoutUser();
+    clearAuthCookie();
+    router.replace('/login');
+  };
+
   const formatNumber = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
@@ -373,266 +423,347 @@ export default function MediaFeedPage() {
   }
 
   return (
-    <div className="h-[100dvh] w-screen overflow-hidden flex flex-col bg-[#0b0914] text-white select-none relative">
-      {/* Top Navbar */}
-      <header className="h-14 sm:h-16 px-3 sm:px-6 md:px-8 bg-[#120f20]/95 backdrop-blur-md border-b border-purple-500/20 flex items-center justify-between shrink-0 z-30 shadow-md">
-        {/* Left: Brand Logo & Navigation Tabs */}
-        <div className="flex items-center gap-3 sm:gap-6 min-w-0">
-          <Link href="/" className="flex items-center gap-2 group shrink-0">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40 group-hover:scale-105 transition-transform">
-              <Film size={17} className="text-white" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-extrabold text-sm sm:text-base tracking-tight bg-gradient-to-r from-white via-purple-100 to-purple-300 bg-clip-text text-transparent truncate">
-                Dardcor Media
-              </span>
-              <span className="hidden sm:inline text-[9px] text-[#c084fc] font-semibold tracking-widest uppercase">
-                TikTok Realtime Feed
-              </span>
-            </div>
-          </Link>
-
-          {/* Tab Switcher (Desktop & Tablet) */}
-          <div className="hidden md:flex items-center bg-[#1c162e] p-1 rounded-xl border border-purple-500/20">
-            <button className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-[#7c3aed] to-[#9333ea] text-white shadow-md shadow-purple-900/40 flex items-center gap-1.5">
-              <Film size={14} />
-              <span>Media Feed</span>
-            </button>
-            <Link
-              href="/chat"
-              className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-purple-200/80 hover:text-white hover:bg-white/5 transition flex items-center gap-1.5"
-            >
-              <MessageSquare size={14} />
-              <span>Chat Obrolan</span>
+    <div className="h-[100dvh] w-screen overflow-hidden flex bg-[#07050e] text-white select-none relative">
+      {/* ================= DESKTOP/LAPTOP COLLAPSIBLE SIDEBAR ================= */}
+      <aside
+        className={`hidden md:flex flex-col bg-[#110d1f] border-r border-purple-500/20 transition-all duration-300 z-30 shrink-0 select-none ${
+          isSidebarOpen ? 'w-60 lg:w-64 p-4' : 'w-18 p-2.5 items-center'
+        }`}
+      >
+        {/* Brand & Sidebar Toggle Button */}
+        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-6`}>
+          {isSidebarOpen ? (
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40">
+                <Film size={16} className="text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-extrabold text-sm tracking-tight bg-gradient-to-r from-white via-purple-100 to-purple-300 bg-clip-text text-transparent">
+                  Dardcor Media
+                </span>
+                <span className="text-[9px] text-[#c084fc] font-semibold tracking-widest uppercase">
+                  Feed & Chat
+                </span>
+              </div>
             </Link>
-          </div>
-        </div>
+          ) : (
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40">
+              <Film size={16} className="text-white" />
+            </div>
+          )}
 
-        {/* Center: Region Filter Pills (Desktop) */}
-        <div className="hidden lg:flex items-center gap-1.5 bg-[#181329] p-1 rounded-xl border border-purple-500/20">
-          {[
-            { id: 'ID', label: '🇮🇩 ID' },
-            { id: 'GLOBAL', label: '🌍 Global' },
-            { id: 'US', label: '🇺🇸 US' },
-            { id: 'JP', label: '🇯🇵 JP' },
-          ].map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setSelectedRegion(r.id)}
-              className={`px-2.5 py-1 text-xs rounded-lg transition font-medium ${
-                selectedRegion === r.id
-                  ? 'bg-purple-600/40 text-[#c084fc] border border-purple-500/50'
-                  : 'text-purple-200/60 hover:text-white'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Right: Actions, Region Selector for Mobile, View Mode & User Profile */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Mobile Region Dropdown Selector */}
-          <div className="lg:hidden flex items-center">
-            <select
-              value={selectedRegion}
-              onChange={(e) => setSelectedRegion(e.target.value)}
-              className="bg-[#1c162e] border border-purple-500/30 text-[#c084fc] text-xs font-semibold rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#8b5cf6]"
-            >
-              <option value="ID">🇮🇩 ID</option>
-              <option value="GLOBAL">🌍 Global</option>
-              <option value="US">🇺🇸 US</option>
-              <option value="JP">🇯🇵 JP</option>
-            </select>
-          </div>
-
-          {/* Refresh Realtime Feed Button */}
           <button
-            onClick={() => fetchTikTokFeed(selectedRegion)}
-            disabled={isLoadingVideos}
-            title="Refresh Feed Realtime"
-            className="p-1.5 sm:p-2 rounded-xl bg-[#1c162e] hover:bg-[#281f42] border border-purple-500/20 text-purple-300 hover:text-white transition disabled:opacity-50"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-purple-600/30 text-purple-300 hover:text-white transition"
+            title={isSidebarOpen ? 'Tutup Sidebar' : 'Buka Sidebar'}
           >
-            <RotateCw size={15} className={isLoadingVideos ? 'animate-spin' : ''} />
+            {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
+        </div>
+
+        {/* Navigation Menu List */}
+        <nav className="flex-1 space-y-2">
+          {/* Menu: TikTok Media Feed (Active) */}
+          <button
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-xs transition ${
+              isSidebarOpen ? '' : 'justify-center px-2'
+            } bg-gradient-to-r from-[#7c3aed] to-[#9333ea] text-white shadow-lg shadow-purple-900/40`}
+          >
+            <Film size={17} className="shrink-0" />
+            {isSidebarOpen && <span>TikTok Media Feed</span>}
           </button>
 
-          {/* View Mode Switcher */}
-          <div className="flex items-center bg-[#1c162e] p-0.5 rounded-xl border border-purple-500/20">
-            <button
-              onClick={() => setViewMode('reels')}
-              title="Tampilan Reels (Scroll Vertikal)"
-              className={`p-1 sm:p-1.5 rounded-lg transition ${
-                viewMode === 'reels' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
-              }`}
-            >
-              <Smartphone size={15} />
-            </button>
-            <button
-              onClick={() => setViewMode('grid')}
-              title="Tampilan Grid Explorer"
-              className={`p-1 sm:p-1.5 rounded-lg transition ${
-                viewMode === 'grid' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
-              }`}
-            >
-              <LayoutGrid size={15} />
-            </button>
-          </div>
+          {/* Menu: Chat Obrolan */}
+          <Link
+            href="/chat"
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-xs text-purple-200/80 hover:text-white hover:bg-white/5 transition ${
+              isSidebarOpen ? '' : 'justify-center px-2'
+            }`}
+            title="Buka Chat Obrolan"
+          >
+            <MessageSquare size={17} className="shrink-0 text-purple-400" />
+            {isSidebarOpen && <span>Chat Obrolan</span>}
+          </Link>
+        </nav>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-1.5 pl-1.5 sm:pl-2 border-l border-purple-500/20">
+        {/* Bottom User Profile & Logout System */}
+        <div className="pt-4 border-t border-purple-500/20 space-y-3">
+          {/* User Profile Card */}
+          <div
+            className={`flex items-center gap-2.5 p-2 rounded-xl bg-[#19142c] border border-purple-500/20 ${
+              isSidebarOpen ? '' : 'justify-center p-1.5'
+            }`}
+          >
             <Avatar src={currentUser?.avatar_url} name={currentUser?.display_name || 'Saya'} size="sm" />
-            <span className="hidden xl:inline text-xs font-semibold text-purple-100 max-w-[90px] truncate">
-              {currentUser?.display_name || currentUser?.username}
-            </span>
+            {isSidebarOpen && (
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-xs font-semibold text-white truncate">
+                  {currentUser?.display_name || currentUser?.username}
+                </span>
+                <span className="text-[10px] text-purple-300/80 truncate">
+                  @{currentUser?.username}
+                </span>
+              </div>
+            )}
           </div>
-        </div>
-      </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] flex items-center justify-center relative overflow-hidden bg-[#07050e]">
-        {isLoadingVideos ? (
-          <div className="flex flex-col items-center justify-center gap-3 text-purple-300">
-            <div className="w-10 h-10 border-3 border-[#8b5cf6] border-t-transparent rounded-full animate-spin shadow-lg shadow-purple-900/50" />
-            <p className="text-xs font-medium">Mengambil video TikTok realtime...</p>
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-300 hover:text-white hover:bg-rose-600/30 transition ${
+              isSidebarOpen ? '' : 'justify-center px-2'
+            }`}
+            title="Keluar Akun"
+          >
+            <LogOut size={16} className="shrink-0" />
+            {isSidebarOpen && <span>Keluar Akun</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* ================= MAIN CONTENT VIEW ================= */}
+      <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
+        {/* Top Header */}
+        <header className="h-14 sm:h-16 px-3 sm:px-6 bg-[#0e0a1b]/95 backdrop-blur-md border-b border-purple-500/20 flex items-center justify-between shrink-0 z-20 shadow-md">
+          {/* Left: Mobile Brand & Mobile Sidebar Switcher */}
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/" className="md:hidden flex items-center gap-2 group shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40">
+                <Film size={16} className="text-white" />
+              </div>
+              <span className="font-extrabold text-sm tracking-tight text-white">
+                Dardcor
+              </span>
+            </Link>
+
+            {/* Desktop Quick Header Info */}
+            <div className="hidden md:flex items-center gap-2 text-xs text-purple-200">
+              <Sparkles size={14} className="text-[#c084fc]" />
+              <span className="font-semibold text-white">TikTok Realtime Media</span>
+              <span className="text-purple-400/80">• Video Trending Indonesia & Dunia</span>
+            </div>
           </div>
-        ) : videos.length === 0 ? (
-          <div className="text-center p-6 space-y-3">
-            <p className="text-sm text-purple-200">Tidak ada video ditemukan untuk wilayah ini.</p>
+
+          {/* Center: Region Filter Buttons (Desktop) */}
+          <div className="hidden lg:flex items-center gap-1.5 bg-[#181329] p-1 rounded-xl border border-purple-500/20">
+            {[
+              { id: 'ID', label: '🇮🇩 Indonesia' },
+              { id: 'GLOBAL', label: '🌍 Global' },
+              { id: 'US', label: '🇺🇸 USA' },
+              { id: 'JP', label: '🇯🇵 Japan' },
+            ].map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setSelectedRegion(r.id)}
+                className={`px-3 py-1 text-xs rounded-lg transition font-medium ${
+                  selectedRegion === r.id
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40'
+                    : 'text-purple-200/60 hover:text-white'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Right: Region Selector (Mobile), Refresh, View Mode */}
+          <div className="flex items-center gap-2">
+            {/* Mobile Region Dropdown */}
+            <div className="lg:hidden flex items-center">
+              <select
+                value={selectedRegion}
+                onChange={(e) => setSelectedRegion(e.target.value)}
+                className="bg-[#1c162e] border border-purple-500/30 text-[#c084fc] text-xs font-semibold rounded-lg px-2 py-1 focus:outline-none"
+              >
+                <option value="ID">🇮🇩 ID</option>
+                <option value="GLOBAL">🌍 Global</option>
+                <option value="US">🇺🇸 US</option>
+                <option value="JP">🇯🇵 JP</option>
+              </select>
+            </div>
+
+            {/* Refresh Button */}
             <button
               onClick={() => fetchTikTokFeed(selectedRegion)}
-              className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#9333ea] text-white text-xs font-semibold rounded-xl"
+              disabled={isLoadingVideos}
+              title="Muat Ulang Feed Realtime"
+              className="p-1.5 sm:p-2 rounded-xl bg-[#1c162e] hover:bg-[#281f42] border border-purple-500/20 text-purple-300 hover:text-white transition disabled:opacity-50"
             >
-              Coba Lagi
+              <RotateCw size={15} className={isLoadingVideos ? 'animate-spin' : ''} />
             </button>
-          </div>
-        ) : viewMode === 'reels' ? (
-          /* ================= VERTICAL SNAP SCROLL REELS CONTAINER ================= */
-          <div className="relative w-full sm:max-w-[420px] md:max-w-[450px] h-full sm:h-[94%] sm:my-auto flex items-center justify-center">
-            {/* Scrollable Container dengan Native Vertical Snap Scrolling */}
-            <div
-              ref={containerRef}
-              className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar bg-black sm:rounded-3xl shadow-2xl shadow-purple-950/80 sm:border sm:border-purple-500/30 relative"
-            >
-              {videos.map((vid, idx) => (
-                <ReelItem
-                  key={vid.id}
-                  video={vid}
-                  isActive={idx === activeIndex}
-                  isMuted={isMuted}
-                  toggleMute={() => setIsMuted((m) => !m)}
-                  liked={Boolean(likedVideos[vid.id])}
-                  onToggleLike={() => toggleLike(vid.id)}
-                  onShare={() => handleShare(vid)}
-                  copied={copiedId === vid.id}
-                  formatNumber={formatNumber}
-                  index={idx}
-                  total={videos.length}
-                />
-              ))}
-            </div>
 
-            {/* Desktop Up/Down Navigation Floating Buttons */}
-            <div className="hidden lg:flex absolute -right-16 top-1/2 -translate-y-1/2 flex-col gap-3 z-30">
+            {/* View Mode Switcher */}
+            <div className="flex items-center bg-[#1c162e] p-0.5 rounded-xl border border-purple-500/20">
               <button
-                onClick={handlePrevVideo}
-                disabled={activeIndex === 0}
-                className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
-                title="Video Sebelumnya (Arrow Up / Scroll Up)"
+                onClick={() => setViewMode('reels')}
+                title="Tampilan Reels (Scroll Vertikal)"
+                className={`p-1 sm:p-1.5 rounded-lg transition ${
+                  viewMode === 'reels' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
+                }`}
               >
-                <ChevronUp size={22} />
+                <Smartphone size={15} />
               </button>
               <button
-                onClick={handleNextVideo}
-                disabled={activeIndex === videos.length - 1}
-                className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
-                title="Video Selanjutnya (Arrow Down / Scroll Down)"
+                onClick={() => setViewMode('grid')}
+                title="Tampilan Grid Explorer"
+                className={`p-1 sm:p-1.5 rounded-lg transition ${
+                  viewMode === 'grid' ? 'bg-purple-600 text-white' : 'text-purple-300/60 hover:text-white'
+                }`}
               >
-                <ChevronDown size={22} />
+                <LayoutGrid size={15} />
               </button>
             </div>
           </div>
-        ) : (
-          /* ================= GRID EXPLORER VIEW ================= */
-          <div className="w-full h-full overflow-y-auto p-3 sm:p-6 md:p-8 max-w-7xl mx-auto pb-24 sm:pb-8">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
-              {videos.map((vid, idx) => (
-                <div
-                  key={vid.id}
-                  onClick={() => {
-                    setViewMode('reels');
-                    setTimeout(() => scrollToVideo(idx), 50);
-                  }}
-                  className="group relative aspect-[9/16] bg-[#1a152b] rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer border border-purple-500/20 hover:border-purple-500/60 transition-all hover:scale-[1.02] shadow-lg"
-                >
-                  <img
-                    src={vid.cover_url}
-                    alt={vid.title}
-                    className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
+        </header>
+
+        {/* Video Canvas Container: Centered & Responsif di Laptop / Desktop */}
+        <main className="flex-1 w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] flex items-center justify-center relative overflow-hidden bg-[#06040d]">
+          {isLoadingVideos ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-purple-300">
+              <div className="w-10 h-10 border-3 border-[#8b5cf6] border-t-transparent rounded-full animate-spin shadow-lg shadow-purple-900/50" />
+              <p className="text-xs font-medium">Mengambil video TikTok realtime...</p>
+            </div>
+          ) : videos.length === 0 ? (
+            <div className="text-center p-6 space-y-3">
+              <p className="text-sm text-purple-200">Tidak ada video ditemukan untuk wilayah ini.</p>
+              <button
+                onClick={() => fetchTikTokFeed(selectedRegion)}
+                className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#9333ea] text-white text-xs font-semibold rounded-xl"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          ) : viewMode === 'reels' ? (
+            /* ================= VERTICAL REELS CONTAINER (RESPONSIF PENUH DI LAPTOP/HP) ================= */
+            <div className="relative w-full sm:w-[380px] md:w-[410px] lg:w-[430px] h-full sm:h-[90%] sm:max-h-[820px] sm:my-auto flex items-center justify-center">
+              {/* Frame Video Scrollable Vertikal */}
+              <div
+                ref={containerRef}
+                className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar bg-black sm:rounded-3xl shadow-2xl shadow-purple-950/90 sm:border sm:border-purple-500/35 relative"
+              >
+                {videos.map((vid, idx) => (
+                  <ReelItem
+                    key={vid.id}
+                    video={vid}
+                    isActive={idx === activeIndex}
+                    isMuted={isMuted}
+                    toggleMute={() => setIsMuted((m) => !m)}
+                    liked={Boolean(likedVideos[vid.id])}
+                    onToggleLike={() => toggleLike(vid.id)}
+                    onShare={() => handleShare(vid)}
+                    copied={copiedId === vid.id}
+                    formatNumber={formatNumber}
+                    index={idx}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-between p-2.5 sm:p-3">
-                    <div className="flex justify-end">
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white">
-                        <Play size={11} />
+                ))}
+
+                {/* Indikator Memuat Video Baru (Unlimited Scroll) */}
+                {isLoadingMore && (
+                  <div className="w-full py-6 flex items-center justify-center gap-2 text-purple-300 text-xs">
+                    <RotateCw size={14} className="animate-spin" />
+                    <span>Memuat video baru...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Tombol Navigasi Panah Atas & Bawah di Desktop */}
+              <div className="hidden xl:flex absolute -right-16 top-1/2 -translate-y-1/2 flex-col gap-3 z-30">
+                <button
+                  onClick={handlePrevVideo}
+                  disabled={activeIndex === 0}
+                  className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-lg active:scale-95"
+                  title="Video Sebelumnya (Arrow Up / Scroll Up)"
+                >
+                  <ChevronUp size={20} />
+                </button>
+                <button
+                  onClick={handleNextVideo}
+                  className="p-3 rounded-2xl bg-[#1a142c] hover:bg-[#251d3d] border border-purple-500/30 text-purple-300 hover:text-white transition shadow-lg active:scale-95"
+                  title="Video Selanjutnya (Arrow Down / Scroll Down)"
+                >
+                  <ChevronDown size={20} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ================= GRID EXPLORER VIEW ================= */
+            <div className="w-full h-full overflow-y-auto p-3 sm:p-6 md:p-8 max-w-7xl mx-auto pb-24 sm:pb-8">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
+                {videos.map((vid, idx) => (
+                  <div
+                    key={vid.id}
+                    onClick={() => {
+                      setViewMode('reels');
+                      setTimeout(() => scrollToVideo(idx), 50);
+                    }}
+                    className="group relative aspect-[9/16] bg-[#1a152b] rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer border border-purple-500/20 hover:border-purple-500/60 transition-all hover:scale-[1.02] shadow-lg"
+                  >
+                    <img
+                      src={vid.cover_url}
+                      alt={vid.title}
+                      className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-between p-2.5 sm:p-3">
+                      <div className="flex justify-end">
+                        <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white">
+                          <Play size={11} />
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[11px] sm:text-xs font-medium text-white line-clamp-2">{vid.title}</p>
-                      <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-purple-200/80 pt-0.5">
-                        <span className="truncate max-w-[60%]">@{vid.author.nickname}</span>
-                        <span className="flex items-center gap-1 shrink-0">
-                          <Heart size={9} fill="currentColor" /> {formatNumber(vid.digg_count)}
-                        </span>
+                      <div className="space-y-1">
+                        <p className="text-[11px] sm:text-xs font-medium text-white line-clamp-2">{vid.title}</p>
+                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-purple-200/80 pt-0.5">
+                          <span className="truncate max-w-[60%]">@{vid.author.nickname}</span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            <Heart size={9} fill="currentColor" /> {formatNumber(vid.digg_count)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Floating / Bottom Mobile Action Bar: Safe & Clean on All Phones */}
-        <div className="md:hidden fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm bg-[#130f24]/95 backdrop-blur-xl border border-purple-500/35 rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl shadow-purple-950/80">
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1 text-xs font-bold text-[#c084fc] px-2.5 py-1 bg-purple-600/20 rounded-lg">
-              <Film size={15} />
-              <span>Media</span>
-            </button>
-            <Link
-              href="/chat"
-              className="flex items-center gap-1 text-xs font-medium text-purple-200/70 hover:text-white px-2.5 py-1 rounded-lg transition"
-            >
-              <MessageSquare size={15} />
-              <span>Chat</span>
-            </Link>
-          </div>
-
-          {/* Quick Prev & Next Controls for Mobile */}
-          {viewMode === 'reels' && (
-            <div className="flex items-center gap-1.5 border-l border-purple-500/30 pl-3">
-              <button
-                onClick={handlePrevVideo}
-                disabled={activeIndex === 0}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
-                title="Sebelumnya (Scroll Up)"
-              >
-                <ChevronUp size={18} />
-              </button>
-              <span className="text-[10px] font-mono text-purple-300">
-                {activeIndex + 1}/{videos.length}
-              </span>
-              <button
-                onClick={handleNextVideo}
-                disabled={activeIndex === videos.length - 1}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
-                title="Selanjutnya (Scroll Down)"
-              >
-                <ChevronDown size={18} />
-              </button>
+                ))}
+              </div>
             </div>
           )}
-        </div>
-      </main>
+
+          {/* Floating Mobile Bottom Action Bar */}
+          <div className="md:hidden fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm bg-[#130f24]/95 backdrop-blur-xl border border-purple-500/35 rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl shadow-purple-950/80">
+            <div className="flex items-center gap-2">
+              <button className="flex items-center gap-1 text-xs font-bold text-[#c084fc] px-2.5 py-1 bg-purple-600/20 rounded-lg">
+                <Film size={15} />
+                <span>Media</span>
+              </button>
+              <Link
+                href="/chat"
+                className="flex items-center gap-1 text-xs font-medium text-purple-200/70 hover:text-white px-2.5 py-1 rounded-lg transition"
+              >
+                <MessageSquare size={15} />
+                <span>Chat</span>
+              </Link>
+            </div>
+
+            {/* Quick Prev & Next Controls for Mobile */}
+            {viewMode === 'reels' && (
+              <div className="flex items-center gap-1.5 border-l border-purple-500/30 pl-3">
+                <button
+                  onClick={handlePrevVideo}
+                  disabled={activeIndex === 0}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
+                  title="Sebelumnya (Scroll Up)"
+                >
+                  <ChevronUp size={18} />
+                </button>
+                <button
+                  onClick={handleNextVideo}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 transition"
+                  title="Selanjutnya (Scroll Down)"
+                >
+                  <ChevronDown size={18} />
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

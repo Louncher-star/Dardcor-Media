@@ -79,6 +79,26 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
           })
           .filter(Boolean) as Chat[];
 
+        // Ambil pesan terakhir untuk setiap chat dari database Supabase
+        if (loadedChats.length > 0) {
+          const chatIds = loadedChats.map((c) => c.id);
+          const { data: latestMessages } = await supabase
+            .from('messages')
+            .select('*')
+            .in('chat_id', chatIds)
+            .order('created_at', { ascending: false });
+
+          if (latestMessages && latestMessages.length > 0) {
+            for (const chat of loadedChats) {
+              const latest = latestMessages.find((m) => m.chat_id === chat.id);
+              if (latest) {
+                chat.last_message = latest as Message;
+                chat.last_message_at = latest.created_at;
+              }
+            }
+          }
+        }
+
         loadedChats.sort(
           (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
         );
