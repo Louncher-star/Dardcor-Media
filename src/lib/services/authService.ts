@@ -87,6 +87,27 @@ export async function saveRegisteredUserToCloud(
         error = retry.error;
       }
 
+      // Jika ada konflik username yang sudah terdaftar di Supabase
+      if (error && error.message?.includes('profiles_username_key')) {
+        const { data: existingUser } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', profile.username)
+          .maybeSingle();
+
+        if (existingUser?.id) {
+          profile.id = existingUser.id;
+          payload.id = existingUser.id;
+          setStoredCurrentUser(profile);
+          setAuthCookie(existingUser.id);
+          const updateRes = await supabase
+            .from('profiles')
+            .update(payload)
+            .eq('id', existingUser.id);
+          if (!updateRes.error) return true;
+        }
+      }
+
       if (!error) return true;
       console.warn('Upsert to profiles warning:', error.message);
     } catch (e) {

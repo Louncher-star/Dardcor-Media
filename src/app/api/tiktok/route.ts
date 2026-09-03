@@ -33,17 +33,26 @@ export async function GET(request: NextRequest) {
       region
     )}&count=${encodeURIComponent(count)}`;
 
-    const response = await fetch(apiUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    });
+    let response: Response | null = null;
+    for (let i = 0; i < 2; i++) {
+      try {
+        response = await fetch(apiUrl, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'application/json',
+          },
+          cache: 'no-store',
+        });
+        if (response && response.ok) break;
+      } catch {
+        if (i === 1) throw new Error('TikWM fetch connection failed after retry');
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
 
-    if (!response.ok) {
-      throw new Error(`TikWM response not ok: ${response.status}`);
+    if (!response || !response.ok) {
+      throw new Error(`TikWM response not ok: ${response?.status}`);
     }
 
     const data = await response.json();

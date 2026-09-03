@@ -539,7 +539,7 @@ export default function MediaFeedPage() {
               >
                 {videos.map((vid, idx) => (
                   <ReelItem
-                    key={vid.id}
+                    key={`${vid.id}_${idx}`}
                     video={vid}
                     isActive={idx === activeIndex}
                     isMuted={isMuted}
@@ -587,7 +587,7 @@ export default function MediaFeedPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
                 {videos.map((vid, idx) => (
                   <div
-                    key={vid.id}
+                    key={`${vid.id}_grid_${idx}`}
                     onClick={() => {
                       setViewMode('reels');
                       setTimeout(() => scrollToVideo(idx), 50);
