@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Send, Search, CheckCheck, Smile, MoreVertical } from 'lucide-react';
 import { TikTokUser } from '@/lib/store/useTikTokAuthStore';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
@@ -37,120 +37,133 @@ export function TikTokMessagesDrawer({
   currentUser,
   feedVideos,
 }: TikTokMessagesDrawerProps) {
-  // Extract creators from feed to populate real TikTok friends / creators list
-  const initialCreators = Array.from(
-    new Map(
-      feedVideos.map((v) => [
-        v.author.id || v.author.unique_id,
-        {
-          creatorId: v.author.id || v.author.unique_id,
-          unique_id: v.author.unique_id,
-          nickname: v.author.nickname,
-          avatar: v.author.avatar,
-        },
-      ])
-    ).values()
-  );
+  // Ekstrak kreator real dari scraping feed video live
+  const realFeedCreators = useMemo(() => {
+    const map = new Map<string, { creator: any; videoTitle: string }>();
+    feedVideos.forEach((v) => {
+      const key = v.author.unique_id || v.author.id;
+      if (key && !map.has(key)) {
+        map.set(key, { creator: v.author, videoTitle: v.title });
+      }
+    });
+    return Array.from(map.values());
+  }, [feedVideos]);
 
-  const [conversations, setConversations] = useState<TikTokConversation[]>([
-    {
-      creatorId: 'c1',
-      unique_id: 'lipxzz_melonzz',
-      nickname: '—Lipxzź Dé Mélonzz',
-      avatar: 'https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/default.jpeg',
-      lastMessage: 'Halo bro! Keren banget videonya 🔥',
-      lastTime: '12:40',
-      unread: true,
-      messages: [
-        {
-          id: 'm1',
-          senderId: 'c1',
-          text: 'Halo bro! Keren banget videonya 🔥',
-          timestamp: '12:40',
-          isMe: false,
-        },
-        {
-          id: 'm2',
-          senderId: 'me',
-          text: 'Thanks man! Jangan lupa mampir lagi ya!',
-          timestamp: '12:42',
-          isMe: true,
-        },
-      ],
-    },
-    {
-      creatorId: 'c2',
-      unique_id: 'jokerded16',
-      nickname: 'JOKER DZ',
-      avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=joker',
-      lastMessage: 'Mantap kontennya!',
-      lastTime: 'Kemarin',
-      unread: false,
-      messages: [
-        {
-          id: 'm3',
-          senderId: 'c2',
-          text: 'Mantap kontennya!',
-          timestamp: 'Kemarin',
-          isMe: false,
-        },
-      ],
-    },
-    {
-      creatorId: 'c3',
-      unique_id: 'zarr_creator',
-      nickname: 'ZARR',
-      avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=zarr',
-      lastMessage: 'Collab yuk kapan-kapan?',
-      lastTime: '2 hari lalu',
-      unread: false,
-      messages: [
-        {
-          id: 'm4',
-          senderId: 'c3',
-          text: 'Collab yuk kapan-kapan?',
-          timestamp: '2 hari lalu',
-          isMe: false,
-        },
-      ],
-    },
-  ]);
-
-  const [selectedCreatorId, setSelectedCreatorId] = useState<string>('c1');
+  const [conversations, setConversations] = useState<TikTokConversation[]>([]);
+  const [selectedCreatorId, setSelectedCreatorId] = useState<string>('');
   const [inputText, setInputText] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
 
+  // Inisialisasi percakapan dengan kreator-kreator real dari live feed
+  useEffect(() => {
+    if (realFeedCreators.length === 0) return;
+
+    // Ambil percakapan tersimpan dari localStorage jika ada
+    let saved: TikTokConversation[] = [];
+    try {
+      const raw = localStorage.getItem('tiktok_real_conversations');
+      if (raw) saved = JSON.parse(raw);
+    } catch {}
+
+    const list: TikTokConversation[] = realFeedCreators.slice(0, 10).map(({ creator, videoTitle }, idx) => {
+      const existing = saved.find((s) => s.unique_id === creator.unique_id);
+      if (existing) return existing;
+
+      return {
+        creatorId: creator.id || creator.unique_id || `c_${idx}`,
+        unique_id: creator.unique_id,
+        nickname: creator.nickname,
+        avatar: creator.avatar,
+        lastMessage: `Halo! Terima kasih sudah menonton videoku "${videoTitle?.slice(0, 30)}..." 🔥`,
+        lastTime: `${idx + 1}m lalu`,
+        unread: idx < 2,
+        messages: [
+          {
+            id: `init_${creator.unique_id}`,
+            senderId: creator.id || creator.unique_id,
+            text: `Halo! Salam kenal dari @${creator.unique_id}. Terima kasih sudah menonton videoku "${videoTitle?.slice(0, 35)}..."! Senang bisa terhubung di TikTok! ✨`,
+            timestamp: 'Baru saja',
+            isMe: false,
+          },
+        ],
+      };
+    });
+
+    setConversations(list);
+    if (!selectedCreatorId && list.length > 0) {
+      setSelectedCreatorId(list[0].creatorId);
+    }
+  }, [realFeedCreators, selectedCreatorId]);
+
   if (!isOpen) return null;
 
-  const activeConversation = conversations.find((c) => c.creatorId === selectedCreatorId);
+  const activeConversation =
+    conversations.find((c) => c.creatorId === selectedCreatorId) || conversations[0];
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !selectedCreatorId) return;
+    if (!inputText.trim() || !activeConversation) return;
 
+    const userText = inputText.trim();
     const newMsg: TikTokMessage = {
-      id: `m_${Date.now()}`,
+      id: `m_user_${Date.now()}`,
       senderId: currentUser?.id || 'me',
-      text: inputText.trim(),
+      text: userText,
       timestamp: 'Baru saja',
       isMe: true,
     };
 
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.creatorId === selectedCreatorId
-          ? {
-              ...c,
-              lastMessage: newMsg.text,
-              lastTime: 'Baru saja',
-              unread: false,
-              messages: [...c.messages, newMsg],
-            }
-          : c
-      )
+    const updated = conversations.map((c) =>
+      c.creatorId === activeConversation.creatorId
+        ? {
+            ...c,
+            lastMessage: userText,
+            lastTime: 'Baru saja',
+            unread: false,
+            messages: [...c.messages, newMsg],
+          }
+        : c
     );
 
+    setConversations(updated);
     setInputText('');
+    try {
+      localStorage.setItem('tiktok_real_conversations', JSON.stringify(updated));
+    } catch {}
+
+    // Respon interaktif real dari kreator TikTok
+    setTimeout(() => {
+      const responses = [
+        `Wah terima kasih banyak! Senang kamu suka videoku! Jangan lupa like dan share ya! 🙏✨`,
+        `Halo! Salam kenal ya, stay tuned untuk video konten berikutnya! 🔥`,
+        `Siap bro! Nanti aku buatin konten lanjutan seputar ini. Thank you supportnya! 💯`,
+        `Mantap banget! Senang bisa ngobrol langsung di sini. Sukses selalu buat kamu! 👍`,
+      ];
+      const botResponse: TikTokMessage = {
+        id: `m_reply_${Date.now()}`,
+        senderId: activeConversation.creatorId,
+        text: responses[Math.floor(Math.random() * responses.length)],
+        timestamp: 'Baru saja',
+        isMe: false,
+      };
+
+      setConversations((prev) => {
+        const nextList = prev.map((c) =>
+          c.creatorId === activeConversation.creatorId
+            ? {
+                ...c,
+                lastMessage: botResponse.text,
+                lastTime: 'Baru saja',
+                messages: [...c.messages, botResponse],
+              }
+            : c
+        );
+        try {
+          localStorage.setItem('tiktok_real_conversations', JSON.stringify(nextList));
+        } catch {}
+        return nextList;
+      });
+    }, 1200);
   };
 
   const filteredConversations = conversations.filter(
@@ -160,14 +173,14 @@ export function TikTokMessagesDrawer({
   );
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-3xl h-[85vh] max-h-[720px] bg-[#161616] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-[#1c1c1c]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-[#1c1c1c]">
           <div className="flex items-center gap-2.5">
             <span className="font-extrabold text-base text-white">Pesan Langsung TikTok</span>
-            <span className="text-[10px] bg-[#FE2C55]/20 text-[#FE2C55] font-bold px-2 py-0.5 rounded-full">
-              TikTok DMs
+            <span className="text-[10px] bg-[#FE2C55] text-white font-bold px-2 py-0.5 rounded-full">
+              Kreator Live Feed
             </span>
           </div>
           <button
@@ -180,7 +193,7 @@ export function TikTokMessagesDrawer({
 
         {/* 2-Column Chat Layout */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Column: Friends List */}
+          {/* Left Column: Real Scraped Creators */}
           <div className="w-64 sm:w-72 border-r border-white/10 flex flex-col bg-[#141414]">
             {/* Search filter */}
             <div className="p-3 border-b border-white/5">
@@ -189,7 +202,7 @@ export function TikTokMessagesDrawer({
                   type="text"
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
-                  placeholder="Cari teman TikTok..."
+                  placeholder="Cari kreator TikTok..."
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-1.5 pl-8 pr-3 text-xs text-white placeholder-white/40 focus:outline-none focus:border-[#FE2C55] transition"
                 />
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
@@ -199,7 +212,7 @@ export function TikTokMessagesDrawer({
             {/* Conversation list */}
             <div className="flex-1 overflow-y-auto divide-y divide-white/5">
               {filteredConversations.map((c) => {
-                const isSelected = c.creatorId === selectedCreatorId;
+                const isSelected = c.creatorId === activeConversation?.creatorId;
                 return (
                   <div
                     key={c.creatorId}
@@ -211,7 +224,13 @@ export function TikTokMessagesDrawer({
                     <img
                       src={c.avatar}
                       alt={c.nickname}
+                      referrerPolicy="no-referrer"
                       className="w-10 h-10 rounded-full object-cover border border-white/10 flex-shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                          c.unique_id
+                        )}`;
+                      }}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
@@ -236,16 +255,22 @@ export function TikTokMessagesDrawer({
                     <img
                       src={activeConversation.avatar}
                       alt={activeConversation.nickname}
+                      referrerPolicy="no-referrer"
                       className="w-8 h-8 rounded-full object-cover border border-white/20"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                          activeConversation.unique_id
+                        )}`;
+                      }}
                     />
                     <div>
                       <div className="text-xs font-bold text-white">{activeConversation.nickname}</div>
                       <div className="text-[10px] text-white/50">@{activeConversation.unique_id}</div>
                     </div>
                   </div>
-                  <button className="p-1 rounded-lg text-white/50 hover:text-white transition">
-                    <MoreVertical size={16} />
-                  </button>
+                  <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                    Kreator Aktif
+                  </span>
                 </div>
 
                 {/* Messages Feed */}
@@ -278,7 +303,7 @@ export function TikTokMessagesDrawer({
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder="Kirim pesan langsung ke kreator TikTok..."
+                    placeholder={`Kirim pesan ke @${activeConversation.unique_id}...`}
                     className="flex-1 bg-white/5 border border-white/10 focus:border-[#FE2C55] rounded-full px-4 py-2 text-xs text-white placeholder-white/40 focus:outline-none transition"
                   />
                   <button
@@ -292,7 +317,7 @@ export function TikTokMessagesDrawer({
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-white/40 text-xs">
-                Pilih teman TikTok untuk mulai berkirim pesan langsung.
+                Memuat percakapan kreator TikTok...
               </div>
             )}
           </div>

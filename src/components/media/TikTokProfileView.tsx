@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Heart, Film, Bookmark, Edit3, Check, Sparkles, UserCheck } from 'lucide-react';
+import { X, Heart, Film, Bookmark, Edit3, Check, Upload } from 'lucide-react';
 import { useTikTokAuthStore } from '@/lib/store/useTikTokAuthStore';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
 
@@ -11,7 +11,9 @@ interface TikTokProfileViewProps {
   likedVideos: TikTokVideoItem[];
   savedVideos: TikTokVideoItem[];
   uploadedVideos: TikTokVideoItem[];
+  feedVideos?: TikTokVideoItem[];
   onSelectVideo: (video: TikTokVideoItem) => void;
+  onOpenUpload?: () => void;
 }
 
 export function TikTokProfileView({
@@ -20,7 +22,9 @@ export function TikTokProfileView({
   likedVideos,
   savedVideos,
   uploadedVideos,
+  feedVideos = [],
   onSelectVideo,
+  onOpenUpload,
 }: TikTokProfileViewProps) {
   const { tiktokUser, updateTikTokProfile } = useTikTokAuthStore();
   const [activeTab, setActiveTab] = useState<'uploaded' | 'liked' | 'saved'>('uploaded');
@@ -34,8 +38,21 @@ export function TikTokProfileView({
     setIsEditingBio(false);
   };
 
+  // Gabungkan video hasil upload pengguna + video real dari kreator ini jika ada di feed
+  const authorScrapedVideos = feedVideos.filter(
+    (v) =>
+      v.author.unique_id?.toLowerCase() === tiktokUser.unique_id?.toLowerCase() ||
+      (v.author.id && v.author.id === tiktokUser.id)
+  );
+
+  const myVideos = [...uploadedVideos, ...authorScrapedVideos];
+
   const currentList =
-    activeTab === 'uploaded' ? uploadedVideos : activeTab === 'liked' ? likedVideos : savedVideos;
+    activeTab === 'uploaded' ? myVideos : activeTab === 'liked' ? likedVideos : savedVideos;
+
+  const fallbackAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+    tiktokUser.unique_id || 'user'
+  )}`;
 
   return (
     <div className="fixed inset-0 z-[310] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
@@ -62,11 +79,18 @@ export function TikTokProfileView({
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {/* Avatar & Identitas */}
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-            <img
-              src={tiktokUser.avatar_url}
-              alt={tiktokUser.nickname}
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-[#FE2C55] shadow-xl"
-            />
+            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-[#FE2C55] shadow-xl flex-shrink-0 bg-[#222222]">
+              <img
+                src={tiktokUser.avatar_url || fallbackAvatar}
+                alt={tiktokUser.nickname}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.src = fallbackAvatar;
+                }}
+                className="w-full h-full object-cover"
+              />
+            </div>
+
             <div className="flex-1 text-center sm:text-left space-y-1">
               <h2 className="text-xl font-black text-white">{tiktokUser.nickname}</h2>
               <p className="text-xs text-white/60 font-semibold">@{tiktokUser.unique_id}</p>
@@ -147,7 +171,7 @@ export function TikTokProfileView({
                 }`}
               >
                 <Film size={14} />
-                <span>Video Saya ({uploadedVideos.length})</span>
+                <span>Video Saya ({myVideos.length})</span>
               </button>
               <button
                 onClick={() => setActiveTab('liked')}
@@ -188,6 +212,7 @@ export function TikTokProfileView({
                     <img
                       src={vid.cover_url}
                       alt={vid.title}
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-2">
@@ -198,8 +223,20 @@ export function TikTokProfileView({
                   </div>
                 ))
               ) : (
-                <div className="col-span-3 py-12 text-center text-white/40 text-xs">
-                  Belum ada video pada kategori ini.
+                <div className="col-span-3 py-12 text-center text-white/40 text-xs space-y-3">
+                  <p>Belum ada video pada kategori ini.</p>
+                  {activeTab === 'uploaded' && onOpenUpload && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenUpload();
+                      }}
+                      className="px-4 py-2 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+                    >
+                      <Upload size={14} />
+                      <span>Unggah Video Sekarang</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

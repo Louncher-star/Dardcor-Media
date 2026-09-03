@@ -1,17 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Mail, AtSign, ArrowRight, UserCheck, Sparkles } from 'lucide-react';
+import { X, Mail, AtSign, ArrowRight, UserCheck, Sparkles, Check } from 'lucide-react';
 import { useTikTokAuthStore } from '@/lib/store/useTikTokAuthStore';
 
 interface TikTokLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  feedCreators?: {
+    id: string;
+    unique_id: string;
+    nickname: string;
+    avatar: string;
+  }[];
 }
 
-export function TikTokLoginModal({ isOpen, onClose }: TikTokLoginModalProps) {
-  const { loginWithTikTok, isLoading } = useTikTokAuthStore();
-  const [loginMethod, setLoginMethod] = useState<'menu' | 'gmail' | 'username'>('menu');
+export function TikTokLoginModal({ isOpen, onClose, feedCreators = [] }: TikTokLoginModalProps) {
+  const { loginWithTikTok, loginWithScrapedCreator, isLoading } = useTikTokAuthStore();
+  const [activeTab, setActiveTab] = useState<'username' | 'gmail' | 'creators'>('username');
   const [inputValue, setInputValue] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -22,31 +28,32 @@ export function TikTokLoginModal({ isOpen, onClose }: TikTokLoginModalProps) {
     if (!inputValue.trim()) return;
 
     setErrorMsg('');
-    const success = await loginWithTikTok(inputValue.trim(), loginMethod === 'gmail');
+    const isGmail = activeTab === 'gmail';
+    const success = await loginWithTikTok(inputValue.trim(), isGmail);
     if (success) {
       setInputValue('');
-      setLoginMethod('menu');
       onClose();
     } else {
-      setErrorMsg('Gagal masuk ke akun TikTok. Periksa input Anda.');
+      setErrorMsg('Gagal memproses akun TikTok. Pastikan username sudah benar.');
     }
   };
 
-  const handleQuickLogin = async (username: string) => {
-    setErrorMsg('');
-    const success = await loginWithTikTok(username, false);
-    if (success) {
-      onClose();
-    }
+  const handleSelectScrapedCreator = (c: {
+    id: string;
+    unique_id: string;
+    nickname: string;
+    avatar: string;
+  }) => {
+    loginWithScrapedCreator(c);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-[#181818] border border-white/10 rounded-2xl shadow-2xl p-6 text-white overflow-hidden">
         {/* Close Button */}
         <button
           onClick={() => {
-            setLoginMethod('menu');
             setErrorMsg('');
             onClose();
           }}
@@ -56,11 +63,48 @@ export function TikTokLoginModal({ isOpen, onClose }: TikTokLoginModalProps) {
         </button>
 
         {/* Title */}
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-black text-white">Masuk ke TikTok</h2>
+        <div className="text-center mb-5">
+          <div className="w-10 h-10 rounded-full bg-[#FE2C55]/10 text-[#FE2C55] flex items-center justify-center mx-auto mb-2 font-black text-xl">
+            TT
+          </div>
+          <h2 className="text-2xl font-black text-white">Masuk ke Akun TikTok</h2>
           <p className="text-xs text-white/50 mt-1">
-            Kelola akun Anda, ikuti kreator, sukai video, dan kirim pesan
+            Loginkan akun real TikTok Anda ke dalam sistem Dardcor Media
           </p>
+        </div>
+
+        {/* Tabs: Username TikTok, Gmail, atau Kreator Trending */}
+        <div className="flex border-b border-white/10 mb-4 text-xs font-bold">
+          <button
+            onClick={() => setActiveTab('username')}
+            className={`flex-1 pb-2.5 border-b-2 transition ${
+              activeTab === 'username'
+                ? 'border-[#FE2C55] text-[#FE2C55]'
+                : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            Username TikTok
+          </button>
+          <button
+            onClick={() => setActiveTab('gmail')}
+            className={`flex-1 pb-2.5 border-b-2 transition ${
+              activeTab === 'gmail'
+                ? 'border-[#FE2C55] text-[#FE2C55]'
+                : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            Google / Gmail
+          </button>
+          <button
+            onClick={() => setActiveTab('creators')}
+            className={`flex-1 pb-2.5 border-b-2 transition ${
+              activeTab === 'creators'
+                ? 'border-[#FE2C55] text-[#FE2C55]'
+                : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            Kreator Trending
+          </button>
         </div>
 
         {errorMsg && (
@@ -69,122 +113,122 @@ export function TikTokLoginModal({ isOpen, onClose }: TikTokLoginModalProps) {
           </div>
         )}
 
-        {loginMethod === 'menu' ? (
-          <div className="space-y-3">
-            {/* Option 1: Google / Gmail */}
-            <button
-              onClick={() => {
-                setLoginMethod('gmail');
-                setInputValue('');
-              }}
-              className="w-full flex items-center justify-between p-3.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white font-semibold text-xs transition group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-red-500/20 flex items-center justify-center text-red-400">
-                  <Mail size={16} />
-                </div>
-                <span>Lanjutkan dengan Google / Gmail</span>
-              </div>
-              <ArrowRight size={15} className="text-white/40 group-hover:text-white transition" />
-            </button>
-
-            {/* Option 2: Username / Handle */}
-            <button
-              onClick={() => {
-                setLoginMethod('username');
-                setInputValue('');
-              }}
-              className="w-full flex items-center justify-between p-3.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white font-semibold text-xs transition group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
-                  <AtSign size={16} />
-                </div>
-                <span>Gunakan Nama Pengguna TikTok</span>
-              </div>
-              <ArrowRight size={15} className="text-white/40 group-hover:text-white transition" />
-            </button>
-
-            {/* Quick Demo Accounts */}
-            <div className="pt-3 border-t border-white/10">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-white/50 mb-2">
-                <Sparkles size={12} className="text-amber-400" />
-                <span>Atau Masuk Cepat Akun Terverifikasi</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { handle: 'thedardcorsociety', name: 'The Dardcor Society' },
-                  { handle: 'dardcor_official', name: 'Dardcor Official' },
-                ].map((acc) => (
-                  <button
-                    key={acc.handle}
-                    onClick={() => handleQuickLogin(acc.handle)}
-                    disabled={isLoading}
-                    className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/10 text-left transition"
-                  >
-                    <div className="text-xs font-bold text-white truncate">{acc.name}</div>
-                    <div className="text-[10px] text-white/50 truncate">@{acc.handle}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
+        {activeTab === 'username' && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-bold text-white/80 block mb-1.5">
-                {loginMethod === 'gmail'
-                  ? 'Masukkan Alamat Gmail Anda'
-                  : 'Masukkan Username TikTok Anda'}
+                Username TikTok Real Anda
               </label>
               <div className="relative">
                 <input
-                  type={loginMethod === 'gmail' ? 'email' : 'text'}
+                  type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  placeholder={
-                    loginMethod === 'gmail'
-                      ? 'contoh: namaanda@gmail.com'
-                      : 'contoh: @tiktok_creator'
-                  }
+                  placeholder="contoh: @fitri.carlina atau username Anda"
                   required
                   autoFocus
                   className="w-full bg-white/5 border border-white/20 focus:border-[#FE2C55] rounded-xl py-2.5 px-4 text-xs text-white placeholder-white/40 focus:outline-none transition"
                 />
               </div>
+              <p className="text-[10px] text-white/40 mt-1.5">
+                Sistem akan melakukan scraping data akun TikTok real Anda secara langsung.
+              </p>
             </div>
 
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="submit"
-                disabled={isLoading || !inputValue.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] disabled:opacity-50 text-white text-xs font-bold transition shadow-lg shadow-[#FE2C55]/30 flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <UserCheck size={16} />
-                    <span>Masuk Akun</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMethod('menu');
-                  setErrorMsg('');
-                }}
-                className="py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold transition"
-              >
-                Kembali
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={isLoading || !inputValue.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] disabled:opacity-50 text-white text-xs font-bold transition shadow-lg shadow-[#FE2C55]/30 flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <UserCheck size={16} />
+                  <span>Scrape & Masuk Akun TikTok</span>
+                </>
+              )}
+            </button>
           </form>
         )}
 
-        <div className="mt-6 text-center text-[11px] text-white/40 leading-relaxed">
-          Dengan melanjutkan, Anda menyetujui Ketentuan Layanan TikTok & Privasi Akun Media.
+        {activeTab === 'gmail' && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-white/80 block mb-1.5">
+                Alamat Gmail Anda
+              </label>
+              <input
+                type="email"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="namaanda@gmail.com"
+                required
+                autoFocus
+                className="w-full bg-white/5 border border-white/20 focus:border-[#FE2C55] rounded-xl py-2.5 px-4 text-xs text-white placeholder-white/40 focus:outline-none transition"
+              />
+              <p className="text-[10px] text-white/40 mt-1.5">
+                Akun profil TikTok akan disinkronkan dengan alamat Gmail resmi Anda.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || !inputValue.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] disabled:opacity-50 text-white text-xs font-bold transition shadow-lg shadow-[#FE2C55]/30 flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Mail size={16} />
+                  <span>Lanjutkan dengan Google / Gmail</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {activeTab === 'creators' && (
+          <div className="space-y-3">
+            <p className="text-[11px] text-white/50">
+              Pilih salah satu kreator TikTok real dari feed live untuk masuk seketika:
+            </p>
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {feedCreators.slice(0, 8).map((c) => (
+                <div
+                  key={c.id || c.unique_id}
+                  onClick={() => handleSelectScrapedCreator(c)}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer transition"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img
+                      src={c.avatar}
+                      alt={c.nickname}
+                      referrerPolicy="no-referrer"
+                      className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                          c.unique_id
+                        )}`;
+                      }}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-white truncate">{c.nickname}</div>
+                      <div className="text-[10px] text-white/50 truncate">@{c.unique_id}</div>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-[#FE2C55] px-2 py-1 rounded-lg bg-[#FE2C55]/10">
+                    Pilih
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 text-center text-[10px] text-white/40 leading-relaxed border-t border-white/10 pt-3">
+          Sistem autentikasi TikTok ini terhubung langsung dengan scraping live dan database Supabase.
         </div>
       </div>
     </div>

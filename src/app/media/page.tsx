@@ -778,14 +778,20 @@ export default function TikTokMediaPage() {
                 if (isTikTokLoggedIn) setIsProfileViewOpen(true);
                 else setIsLoginModalOpen(true);
               }}
-              className="w-7 h-7 rounded-full border border-white/30 overflow-hidden"
+              className="w-7 h-7 rounded-full border border-white/30 overflow-hidden bg-[#222222]"
             >
               <img
                 src={
                   tiktokUser?.avatar_url ||
-                  'https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/default.jpeg'
+                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                    tiktokUser?.unique_id || 'user'
+                  )}`
                 }
                 alt="Profile"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=user`;
+                }}
                 className="w-full h-full object-cover"
               />
             </button>
@@ -821,8 +827,19 @@ export default function TikTokMediaPage() {
                   title={`Akun TikTok: ${tiktokUser.nickname}`}
                 >
                   <img
-                    src={tiktokUser.avatar_url}
+                    src={
+                      tiktokUser.avatar_url ||
+                      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                        tiktokUser.unique_id
+                      )}`
+                    }
                     alt={tiktokUser.nickname}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                        tiktokUser.unique_id
+                      )}`;
+                    }}
                     className="w-full h-full object-cover"
                   />
                 </button>
@@ -1127,6 +1144,7 @@ export default function TikTokMediaPage() {
       <TikTokLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
+        feedCreators={suggestedCreators}
       />
 
       {/* 2. TikTok Direct Messages Drawer (KHUSUS TIKTOK, BUKAN CHAT DARDCOR) */}
@@ -1134,7 +1152,7 @@ export default function TikTokMediaPage() {
         isOpen={isMessagesDrawerOpen}
         onClose={() => setIsMessagesDrawerOpen(false)}
         currentUser={tiktokUser}
-        feedVideos={videos}
+        feedVideos={displayedVideos}
       />
 
       {/* 3. TikTok LIVE Modal */}
@@ -1166,6 +1184,8 @@ export default function TikTokMediaPage() {
         likedVideos={likedVideosList}
         savedVideos={savedVideosList}
         uploadedVideos={userUploadedVideos}
+        feedVideos={displayedVideos}
+        onOpenUpload={() => setIsUploadModalOpen(true)}
         onSelectVideo={(v) => {
           const idx = displayedVideos.findIndex((item) => item.id === v.id);
           if (idx !== -1) setActiveIndex(idx);
