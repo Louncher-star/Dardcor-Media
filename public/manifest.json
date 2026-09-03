@@ -1,0 +1,39 @@
+{
+  "name": "Dardcor Media - Modern Chat & Communication",
+  "short_name": "Dardcor Media",
+  "description": "Aplikasi pesan instan modern, cepat, aman, dan berkelas futuristik bernuansa ungu.",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#0f0d19",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Buka Obrolan",
+      "short_name": "Chat",
+      "description": "Buka ruang obrolan Anda",
+      "url": "/chat",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

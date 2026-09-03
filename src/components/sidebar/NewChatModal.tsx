@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Search, Users, UserPlus } from 'lucide-react';
+import { ArrowLeft, Search, Users } from 'lucide-react';
 import { Profile, Chat } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { getRegisteredUsers } from '@/lib/services/authService';
+import { fetchCloudProfiles } from '@/lib/services/authService';
 import { saveUserChats } from '@/lib/services/chatService';
 import { DEMO_CONTACTS } from '@/lib/utils/demoData';
 
@@ -30,39 +30,31 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
 
     const fetchUsers = async () => {
       setIsLoading(true);
-      if (!isSupabaseConfigured()) {
-        const registered = getRegisteredUsers().filter((u) => u.id !== user?.id);
-        // Gabungkan pengguna yang terdaftar dengan kontak rekomendasi
-        const merged: Profile[] = [...registered];
+      try {
+        const allProfiles = await fetchCloudProfiles();
+        const otherUsers = allProfiles.filter(
+          (u) => u.id !== user?.id && u.username !== user?.username
+        );
+
+        // Jika baru sedikit pengguna, sertakan kontak komunitas bawaan
+        const merged = [...otherUsers];
         DEMO_CONTACTS.forEach((dc) => {
           if (!merged.some((m) => m.username === dc.username || m.id === dc.id)) {
             merged.push(dc);
           }
         });
+
         setUsersList(merged);
-        setIsLoading(false);
-        return;
-      }
-
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user?.id || '')
-        .order('display_name', { ascending: true })
-        .limit(50);
-
-      if (error) {
-        console.error('Error fetching users:', error);
+      } catch (err) {
+        console.error('Error fetching contacts:', err);
         setUsersList(DEMO_CONTACTS);
-      } else if (data) {
-        setUsersList(data as Profile[]);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     fetchUsers();
-  }, [isOpen, user?.id]);
+  }, [isOpen, user?.id, user?.username]);
 
   if (!isOpen) return null;
 
@@ -80,7 +72,7 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       (c) =>
         !c.is_group &&
         (c.other_participant?.id === targetUser.id ||
-          c.participants.some((p) => p.user_id === targetUser.id))
+          c.participants?.some((p) => p.user_id === targetUser.id))
     );
 
     if (existingChat) {
@@ -89,113 +81,78 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       return;
     }
 
-    // Jika belum ada, buat chat baru
-    if (!isSupabaseConfigured()) {
-      const newChat: Chat = {
-        id: `chat_${Date.now()}`,
-        is_group: false,
-        created_by: user.id,
-        last_message_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        other_participant: targetUser,
-        participants: [
-          {
-            id: `cp_${Date.now()}_1`,
-            chat_id: `chat_${Date.now()}`,
-            user_id: user.id,
-            role: 'member',
-            is_pinned: false,
-            is_archived: false,
-            is_muted: false,
-            last_read_at: new Date().toISOString(),
-            joined_at: new Date().toISOString(),
-            profile: user,
-          },
-          {
-            id: `cp_${Date.now()}_2`,
-            chat_id: `chat_${Date.now()}`,
-            user_id: targetUser.id,
-            role: 'member',
-            is_pinned: false,
-            is_archived: false,
-            is_muted: false,
-            last_read_at: new Date().toISOString(),
-            joined_at: new Date().toISOString(),
-            profile: targetUser,
-          },
-        ],
-      };
+    const newChatId = `chat_${Date.now()}`;
+    let createdChat: Chat = {
+      id: newChatId,
+      is_group: false,
+      created_by: user.id,
+      last_message_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      other_participant: targetUser,
+      participants: [
+        {
+          id: `cp_${Date.now()}_1`,
+          chat_id: newChatId,
+          user_id: user.id,
+          role: 'member',
+          is_pinned: false,
+          is_archived: false,
+          is_muted: false,
+          last_read_at: new Date().toISOString(),
+          joined_at: new Date().toISOString(),
+          profile: user,
+        },
+        {
+          id: `cp_${Date.now()}_2`,
+          chat_id: newChatId,
+          user_id: targetUser.id,
+          role: 'member',
+          is_pinned: false,
+          is_archived: false,
+          is_muted: false,
+          last_read_at: new Date().toISOString(),
+          joined_at: new Date().toISOString(),
+          profile: targetUser,
+        },
+      ],
+    };
 
-      const updatedChats = [newChat, ...chats];
-      addChat(newChat);
-      saveUserChats(user.id, updatedChats);
-      setActiveChatId(newChat.id);
-      onClose();
-      return;
+    // Sinkronisasi ke Supabase jika aktif
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const { data: newChatData, error: chatError } = await supabase
+          .from('chats')
+          .insert({
+            is_group: false,
+            created_by: user.id,
+            last_message_at: new Date().toISOString(),
+          })
+          .select()
+          .maybeSingle();
+
+        if (!chatError && newChatData) {
+          createdChat = {
+            ...createdChat,
+            id: newChatData.id,
+          };
+
+          await supabase.from('chat_participants').insert([
+            { chat_id: newChatData.id, user_id: user.id },
+            { chat_id: newChatData.id, user_id: targetUser.id },
+          ]);
+        }
+      } catch (err) {
+        console.warn('Supabase chat creation fallback to local:', err);
+      }
     }
 
-    try {
-      const supabase = createClient();
-
-      // 1. Insert chat baru
-      const { data: newChatData, error: chatError } = await supabase
-        .from('chats')
-        .insert({
-          is_group: false,
-          created_by: user.id,
-          last_message_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (chatError) throw chatError;
-
-      // 2. Insert peserta chat (user saat ini dan target user)
-      const { error: partError } = await supabase.from('chat_participants').insert([
-        { chat_id: newChatData.id, user_id: user.id },
-        { chat_id: newChatData.id, user_id: targetUser.id },
-      ]);
-
-      if (partError) throw partError;
-
-      const createdChat: Chat = {
-        ...newChatData,
-        other_participant: targetUser,
-        participants: [
-          {
-            id: `cp_${Date.now()}_1`,
-            chat_id: newChatData.id,
-            user_id: user.id,
-            role: 'member',
-            is_pinned: false,
-            is_archived: false,
-            is_muted: false,
-            last_read_at: new Date().toISOString(),
-            joined_at: new Date().toISOString(),
-          },
-          {
-            id: `cp_${Date.now()}_2`,
-            chat_id: newChatData.id,
-            user_id: targetUser.id,
-            role: 'member',
-            is_pinned: false,
-            is_archived: false,
-            is_muted: false,
-            last_read_at: new Date().toISOString(),
-            joined_at: new Date().toISOString(),
-            profile: targetUser,
-          },
-        ],
-      };
-
-      addChat(createdChat);
-      setActiveChatId(createdChat.id);
-      onClose();
-    } catch (err) {
-      console.error('Gagal membuat obrolan:', err);
-      alert('Gagal memulai obrolan.');
-    }
+    const updatedChats = [createdChat, ...chats];
+    addChat(createdChat);
+    saveUserChats(user.id, updatedChats);
+    setActiveChatId(createdChat.id);
+    onClose();
   };
 
   return (
@@ -246,7 +203,7 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       {/* Contact List */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 py-2 text-[11px] font-semibold text-[#c084fc] uppercase tracking-wider select-none">
-          Kontak di Dardcor Media
+          Semua Kontak Pengguna
         </div>
 
         {isLoading ? (

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4c1d95" />
+      <stop offset="50%" stop-color="#6d28d9" />
+      <stop offset="100%" stop-color="#0f0d19" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="50%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+
+  <!-- Outer Neon Ring -->
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="none" stroke="url(#accentGrad)" stroke-width="4" opacity="0.4" />
+
+  <!-- Glowing Chat Bubble Shape -->
+  <path d="M140 180 C140 135.8 175.8 100 220 100 L292 100 C336.2 100 372 135.8 372 180 L372 260 C372 304.2 336.2 340 292 340 L210 340 L160 390 L160 340 C140 330 140 300 140 260 Z" 
+        fill="url(#accentGrad)" filter="url(#glow)" opacity="0.95" />
+
+  <!-- Inner High-tech Letter D Symbol -->
+  <path d="M220 170 L265 170 C290 170 310 188 310 215 C310 242 290 260 265 260 L220 260 Z" 
+        fill="#ffffff" />
+  <path d="M245 195 L260 195 C272 195 282 203 282 215 C282 227 272 235 260 235 L245 235 Z" 
+        fill="#6d28d9" />
+
+  <!-- Small Pulse Indicator -->
+  <circle cx="372" cy="140" r="20" fill="#22c55e" stroke="#0f0d19" stroke-width="6" />
+</svg>

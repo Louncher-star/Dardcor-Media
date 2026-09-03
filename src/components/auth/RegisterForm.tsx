@@ -125,7 +125,7 @@ export function RegisterForm() {
     setUser(newProfile);
 
     setIsLoading(false);
-    router.push('/');
+    router.push('/chat');
     router.refresh();
   };
 
@@ -273,11 +273,18 @@ export function RegisterForm() {
         </button>
       </form>
 
-      <div className="mt-6 text-center text-xs text-purple-300/70">
-        Sudah memiliki akun?{' '}
-        <Link href="/login" className="text-[#a78bfa] font-semibold hover:underline">
-          Masuk di sini
-        </Link>
+      <div className="mt-6 text-center text-xs text-purple-300/70 space-y-3">
+        <div>
+          Sudah memiliki akun?{' '}
+          <Link href="/login" className="text-[#a78bfa] font-semibold hover:underline">
+            Masuk di sini
+          </Link>
+        </div>
+        <div>
+          <Link href="/" className="text-purple-400/60 hover:text-purple-300 transition text-[11px]">
+            ← Kembali ke Halaman Utama
+          </Link>
+        </div>
       </div>
     </div>
   );

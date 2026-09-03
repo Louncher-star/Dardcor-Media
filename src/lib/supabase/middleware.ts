@@ -44,23 +44,24 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
+  const isChatRoute = pathname.startsWith('/chat');
   const isPublicApi = pathname.startsWith('/api/auth/callback');
 
   if (isPublicApi) {
     return supabaseResponse;
   }
 
-  // Jika belum login dan mengakses halaman utama, wajib redirect ke /login
-  if (!isAuthenticated && !isAuthRoute) {
+  // 1. Jika belum login dan mencoba membuka ruang obrolan /chat, alihkan ke /login
+  if (!isAuthenticated && isChatRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     return NextResponse.redirect(redirectUrl);
   }
 
-  // Jika sudah login dan mencoba mengakses /login atau /register, alihkan ke /
+  // 2. Jika sudah login dan mencoba mengakses /login atau /register, alihkan ke /chat
   if (isAuthenticated && isAuthRoute) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/';
+    redirectUrl.pathname = '/chat';
     return NextResponse.redirect(redirectUrl);
   }
 

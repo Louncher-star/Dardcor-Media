@@ -74,7 +74,7 @@ export function LoginForm() {
           setUser(profile);
 
           setIsLoading(false);
-          router.push('/');
+          router.push('/chat');
           router.refresh();
           return;
         }
@@ -94,7 +94,7 @@ export function LoginForm() {
       setStoredCurrentUser(found);
       setUser(found);
       setIsLoading(false);
-      router.push('/');
+      router.push('/chat');
       router.refresh();
       return;
     }
@@ -191,11 +191,18 @@ export function LoginForm() {
         </button>
       </form>
 
-      <div className="mt-6 text-center text-xs text-purple-300/70">
-        Belum memiliki akun?{' '}
-        <Link href="/register" className="text-[#a78bfa] font-semibold hover:underline">
-          Daftar sekarang
-        </Link>
+      <div className="mt-6 text-center text-xs text-purple-300/70 space-y-3">
+        <div>
+          Belum memiliki akun?{' '}
+          <Link href="/register" className="text-[#a78bfa] font-semibold hover:underline">
+            Daftar sekarang
+          </Link>
+        </div>
+        <div>
+          <Link href="/" className="text-purple-400/60 hover:text-purple-300 transition text-[11px]">
+            ← Kembali ke Halaman Utama
+          </Link>
+        </div>
       </div>
     </div>
   );

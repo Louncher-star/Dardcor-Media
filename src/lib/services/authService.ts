@@ -45,6 +45,51 @@ export function saveRegisteredUser(account: RegisteredAccount) {
   localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(filtered));
 }
 
+export async function saveRegisteredUserToCloud(profile: Profile, email?: string): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const payload: Record<string, unknown> = {
+        id: profile.id,
+        username: profile.username,
+        display_name: profile.display_name,
+        avatar_url: profile.avatar_url,
+        about: profile.about || 'Ada! Menggunakan Dardcor Media.',
+        is_online: true,
+        updated_at: new Date().toISOString(),
+      };
+      if (email) payload.email = email;
+
+      const { error } = await supabase.from('profiles').upsert(payload);
+      if (!error) return true;
+      console.warn('Upsert to profiles warning:', error.message);
+    } catch (e) {
+      console.error('Error saving user to Supabase profiles:', e);
+    }
+  }
+  return false;
+}
+
+export async function fetchCloudProfiles(): Promise<Profile[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('display_name', { ascending: true });
+
+      if (!error && data && data.length > 0) {
+        return data as Profile[];
+      }
+    } catch (e) {
+      console.error('Error fetching cloud profiles:', e);
+    }
+  }
+
+  return getRegisteredUsers();
+}
+
 export function getStoredCurrentUser(): Profile | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -65,7 +110,7 @@ export function setStoredCurrentUser(user: Profile | null) {
 }
 
 export async function getCurrentUser(): Promise<Profile | null> {
-  // 1. Jika Supabase aktif
+  // 1. Cek Sesi Supabase jika aktif
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -86,7 +131,7 @@ export async function getCurrentUser(): Promise<Profile | null> {
           return profile as Profile;
         }
 
-        // Jika profile di tabel profiles belum sempat terbuat oleh trigger, buat otomatis
+        // Buat profil jika belum ada di tabel profiles
         const meta = session.user.user_metadata || {};
         const fallbackProfile: Profile = {
           id: session.user.id,
@@ -101,12 +146,7 @@ export async function getCurrentUser(): Promise<Profile | null> {
           updated_at: new Date().toISOString(),
         };
 
-        try {
-          await supabase.from('profiles').upsert(fallbackProfile);
-        } catch (e) {
-          console.error('Error upserting fallback profile:', e);
-        }
-
+        await saveRegisteredUserToCloud(fallbackProfile, session.user.email);
         setAuthCookie(fallbackProfile.id);
         setStoredCurrentUser(fallbackProfile);
         return fallbackProfile;
@@ -120,21 +160,23 @@ export async function getCurrentUser(): Promise<Profile | null> {
   const storedUser = getStoredCurrentUser();
   if (storedUser) {
     setAuthCookie(storedUser.id);
+    // Sinkronkan ke cloud jika belum ada
+    saveRegisteredUserToCloud(storedUser);
     return storedUser;
   }
 
-  // 3. Cek dari daftar user terdaftar
+  // 3. Cek dari cookie & daftar akun lokal
   const cookieUserId = getAuthCookie();
   if (cookieUserId) {
     const allUsers = getRegisteredUsers();
     const found = allUsers.find((u) => u.id === cookieUserId);
     if (found) {
       setStoredCurrentUser(found);
+      saveRegisteredUserToCloud(found, found.email);
       return found;
     }
   }
 
-  // Jika benar-benar tidak ada sesi aktif, bersihkan cookie agar tidak loop
   clearAuthCookie();
   return null;
 }
