@@ -448,3 +448,64 @@ DO $$ BEGIN
 EXCEPTION WHEN others THEN null;
 END $$;
 
+-- ============================================================================
+-- 14. TIKTOK DIRECT MESSAGES (PESAN KHUSUS ANTAR TEMAN/KREATOR TIKTOK)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.tiktok_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sender_handle TEXT NOT NULL,
+    receiver_handle TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tiktok_messages_pair ON public.tiktok_messages(sender_handle, receiver_handle);
+CREATE INDEX IF NOT EXISTS idx_tiktok_messages_created ON public.tiktok_messages(created_at ASC);
+
+ALTER TABLE public.tiktok_messages ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    CREATE POLICY "Allow public all access on tiktok_messages"
+        ON public.tiktok_messages FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_messages;
+EXCEPTION WHEN others THEN null;
+END $$;
+
+-- ============================================================================
+-- 15. TIKTOK UPLOADED VIDEOS (VIDEO HASIL UNGGAH PENGGUNA)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.tiktok_uploaded_videos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    author_unique_id TEXT NOT NULL,
+    author_nickname TEXT NOT NULL,
+    author_avatar TEXT NOT NULL,
+    title TEXT NOT NULL,
+    video_url TEXT NOT NULL,
+    cover_url TEXT NOT NULL,
+    digg_count INT DEFAULT 0,
+    comment_count INT DEFAULT 0,
+    share_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tiktok_uploaded_videos_author ON public.tiktok_uploaded_videos(author_unique_id);
+CREATE INDEX IF NOT EXISTS idx_tiktok_uploaded_videos_created ON public.tiktok_uploaded_videos(created_at DESC);
+
+ALTER TABLE public.tiktok_uploaded_videos ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    CREATE POLICY "Allow public all access on tiktok_uploaded_videos"
+        ON public.tiktok_uploaded_videos FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_uploaded_videos;
+EXCEPTION WHEN others THEN null;
+END $$;
+
+

@@ -12,7 +12,6 @@ import {
   Volume2,
   VolumeX,
   Play,
-  Pause,
   ChevronUp,
   ChevronDown,
   Search,
@@ -29,44 +28,47 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Film,
-  MessageSquare,
   Bell,
   MoreHorizontal,
   Smartphone,
   Monitor,
+  UserPlus,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { getCurrentUser, logoutUser, clearAuthCookie } from '@/lib/services/authService';
+import { useTikTokAuthStore } from '@/lib/store/useTikTokAuthStore';
+import { getCurrentUser } from '@/lib/services/authService';
 import { TikTokVideoItem } from '@/app/api/tiktok/route';
 import { ScrapedComment } from '@/app/api/tiktok/comments/route';
-import { UserProfileModal } from '@/components/media/UserProfileModal';
 import { CreatorProfileModal } from '@/components/media/CreatorProfileModal';
 import { CommentDrawer } from '@/components/media/CommentDrawer';
 import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
-import { createClient } from '@/lib/supabase/client';
-import { Profile } from '@/types';
+import { TikTokLoginModal } from '@/components/media/TikTokLoginModal';
+import { TikTokMessagesDrawer } from '@/components/media/TikTokMessagesDrawer';
+import { TikTokLiveModal } from '@/components/media/TikTokLiveModal';
+import { TikTokExploreView } from '@/components/media/TikTokExploreView';
+import { TikTokUploadModal } from '@/components/media/TikTokUploadModal';
+import { TikTokActivityDrawer } from '@/components/media/TikTokActivityDrawer';
+import { TikTokProfileView } from '@/components/media/TikTokProfileView';
+import { TikTokMoreMenu } from '@/components/media/TikTokMoreMenu';
 
 // ================= TIKTOK 3D OFFSET GLITCH LOGO =================
 function TikTokLogo() {
   return (
     <div className="flex items-center gap-2 select-none cursor-pointer">
       <div className="relative w-6 h-6 flex items-center justify-center">
-        {/* Cyan glitch shadow */}
         <svg
           viewBox="0 0 24 24"
           className="absolute -left-[1px] -top-[1px] w-6 h-6 fill-[#25F4EE] opacity-90 pointer-events-none"
         >
           <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-2.891 2.891 2.896 2.896 0 0 1-2.891-2.891 2.896 2.896 0 0 1 2.891-2.891c.313 0 .614.053.896.147V9.452a6.34 6.34 0 0 0-.896-.064 6.342 6.342 0 0 0-6.336 6.336 6.342 6.342 0 0 0 6.336 6.336 6.342 6.342 0 0 0 6.336-6.336V9.068a8.17 8.17 0 0 0 4.88 1.603V7.228a4.808 4.808 0 0 1-1.11-.542z" />
         </svg>
-        {/* Red glitch shadow */}
         <svg
           viewBox="0 0 24 24"
           className="absolute left-[1px] top-[1px] w-6 h-6 fill-[#FE2C55] opacity-90 pointer-events-none"
         >
           <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-2.891 2.891 2.896 2.896 0 0 1-2.891-2.891 2.896 2.896 0 0 1 2.891-2.891c.313 0 .614.053.896.147V9.452a6.34 6.34 0 0 0-.896-.064 6.342 6.342 0 0 0-6.336 6.336 6.342 6.342 0 0 0 6.336 6.336 6.342 6.342 0 0 0 6.336-6.336V9.068a8.17 8.17 0 0 0 4.88 1.603V7.228a4.808 4.808 0 0 1-1.11-.542z" />
         </svg>
-        {/* Sharp white base */}
         <svg viewBox="0 0 24 24" className="relative w-6 h-6 fill-white">
           <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-2.891 2.891 2.896 2.896 0 0 1-2.891-2.891 2.896 2.896 0 0 1 2.891-2.891c.313 0 .614.053.896.147V9.452a6.34 6.34 0 0 0-.896-.064 6.342 6.342 0 0 0-6.336 6.336 6.342 6.342 0 0 0 6.336 6.336 6.342 6.342 0 0 0 6.336-6.336V9.068a8.17 8.17 0 0 0 4.88 1.603V7.228a4.808 4.808 0 0 1-1.11-.542z" />
         </svg>
@@ -87,20 +89,35 @@ function formatCount(num: number): string {
 
 export default function TikTokMediaPage() {
   const router = useRouter();
-  const { user, setUser } = useAuthStore();
-  const { chats, isMobileSidebarOpen, setMobileSidebarOpen } = useChatStore();
+  const { setUser } = useAuthStore();
+  const { setMobileSidebarOpen } = useChatStore();
 
-  // State feed & search
+  // TikTok dedicated auth store
+  const {
+    tiktokUser,
+    isLoggedIn: isTikTokLoggedIn,
+    initSession: initTikTokSession,
+    logoutTikTok,
+  } = useTikTokAuthStore();
+
+  // Feed & navigation
   const [videos, setVideos] = useState<TikTokVideoItem[]>([]);
+  const [userUploadedVideos, setUserUploadedVideos] = useState<TikTokVideoItem[]>([]);
   const [isLoadingFeed, setIsLoadingFeed] = useState(true);
   const [selectedRegion, setSelectedRegion] = useState('ID');
   const [searchQuery, setSearchQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
-  const [activeMenu, setActiveMenu] = useState<'saran' | 'jelajahi' | 'mengikuti' | 'teman' | 'live'>('saran');
+  const [activeMenu, setActiveMenu] = useState<
+    'saran' | 'jelajahi' | 'mengikuti' | 'teman'
+  >('saran');
   const [activeIndex, setActiveIndex] = useState(0);
 
   // TikTok Sidebar toggle (on desktop)
   const [isTikTokSidebarCollapsed, setIsTikTokSidebarCollapsed] = useState(false);
+
+  // Top-Right TikTok Account Dropdown (Gambar 2)
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Video playback & audio
   const [isMuted, setIsMuted] = useState(true);
@@ -119,7 +136,15 @@ export default function TikTokMediaPage() {
   const [commentsMap, setCommentsMap] = useState<Record<string, ScrapedComment[]>>({});
 
   // Modals & Drawers
-  const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isMessagesDrawerOpen, setIsMessagesDrawerOpen] = useState(false);
+  const [isLiveModalOpen, setIsLiveModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
+  const [isProfileViewOpen, setIsProfileViewOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // Creator Modal & Comment Drawer
   const [selectedCreatorHandle, setSelectedCreatorHandle] = useState<string | null>(null);
   const [selectedCreatorInfo, setSelectedCreatorInfo] = useState<{
     id: string;
@@ -132,7 +157,7 @@ export default function TikTokMediaPage() {
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [shareToast, setShareToast] = useState(false);
 
-  // 1. Initial auth check
+  // 1. Initial auth check for Dardcor & TikTok
   useEffect(() => {
     const checkAuth = async () => {
       const currentUser = await getCurrentUser();
@@ -141,7 +166,22 @@ export default function TikTokMediaPage() {
       }
     };
     checkAuth();
-  }, [setUser]);
+    initTikTokSession();
+  }, [setUser, initTikTokSession]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        accountDropdownRef.current &&
+        !accountDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsAccountDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 2. Fetch live TikTok feed
   const loadFeed = useCallback(
@@ -172,8 +212,20 @@ export default function TikTokMediaPage() {
     loadFeed(selectedRegion, submittedQuery);
   }, [selectedRegion, submittedQuery, loadFeed]);
 
-  // Active video item
-  const currentVideo: TikTokVideoItem | undefined = videos[activeIndex];
+  // Filtered videos based on active menu
+  const displayedVideos: TikTokVideoItem[] = (() => {
+    const all = [...userUploadedVideos, ...videos];
+    if (activeMenu === 'mengikuti') {
+      const followed = all.filter((v) => followingCreatorIds[v.author.id]);
+      return followed.length > 0 ? followed : all;
+    }
+    if (activeMenu === 'teman') {
+      return all.slice(0, 10);
+    }
+    return all;
+  })();
+
+  const currentVideo: TikTokVideoItem | undefined = displayedVideos[activeIndex];
 
   // Video progress time update
   const handleTimeUpdate = () => {
@@ -187,7 +239,7 @@ export default function TikTokMediaPage() {
 
   // Switch video (next / prev)
   const goToNextVideo = () => {
-    if (activeIndex < videos.length - 1) {
+    if (activeIndex < displayedVideos.length - 1) {
       setActiveIndex((prev) => prev + 1);
       setCurrentTime(0);
       setIsPlaying(true);
@@ -236,7 +288,7 @@ export default function TikTokMediaPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, videos, currentVideo]);
+  }, [activeIndex, displayedVideos, currentVideo]);
 
   // Toggle Play / Pause
   const togglePlay = () => {
@@ -272,6 +324,7 @@ export default function TikTokMediaPage() {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSubmittedQuery(searchQuery.trim());
+    setActiveMenu('saran');
   };
 
   // 4. Toggle Like
@@ -338,13 +391,11 @@ export default function TikTokMediaPage() {
 
     const newComment: ScrapedComment = {
       id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      user_name: user?.display_name || user?.username || 'Pengguna Dardcor',
-      user_handle: user?.username || 'user',
+      user_name: tiktokUser?.nickname || 'Pengguna TikTok',
+      user_handle: tiktokUser?.unique_id || 'user',
       user_avatar:
-        user?.avatar_url ||
-        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
-          user?.username || 'user'
-        )}`,
+        tiktokUser?.avatar_url ||
+        'https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/default.jpeg',
       text: text.trim(),
       created_at: 'Baru saja',
       likes: 0,
@@ -395,33 +446,21 @@ export default function TikTokMediaPage() {
     setIsCreatorProfileOpen(true);
   };
 
-  // 12. Handle Logout
-  const handleLogout = async () => {
-    await logoutUser();
-    clearAuthCookie();
-    setUser(null);
-    router.push('/login');
+  // 12. Handle video upload
+  const handleNewVideoUploaded = (newVid: TikTokVideoItem) => {
+    setUserUploadedVideos((prev) => [newVid, ...prev]);
+    setActiveIndex(0);
+    setActiveMenu('saran');
   };
 
-  // 13. Update Profile
-  const handleUpdateProfile = async (updated: Partial<Profile>) => {
-    if (!user) return;
-    const supabase = createClient();
-    await supabase.from('profiles').update(updated).eq('id', user.id);
-    setUser({ ...user, ...updated });
-  };
-
-  // Dynamic suggested creators from feed
+  // Suggested creators list
   const suggestedCreators = Array.from(
     new Map(videos.map((v) => [v.author.id || v.author.unique_id, v.author])).values()
   ).slice(0, 6);
 
-  // Liked & saved lists for UserProfileModal
-  const likedVideosList = videos.filter((v) => likedVideoIds[v.id]);
-  const savedVideosList = videos.filter((v) => favoritedVideoIds[v.id]);
-
-  // Total unread chat messages
-  const totalUnread = chats.reduce((acc, c) => acc + (c.unread_count || 0), 0);
+  // Liked & saved lists for profile
+  const likedVideosList = displayedVideos.filter((v) => likedVideoIds[v.id]);
+  const savedVideosList = displayedVideos.filter((v) => favoritedVideoIds[v.id]);
 
   // Progress percentage
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
@@ -442,7 +481,7 @@ export default function TikTokMediaPage() {
       <AppNavigationSidebar defaultCollapsed={true} />
 
       {/* ========================================================================= */}
-      {/* 2. TIKTOK INTERFACE CONTAINER (Exact Match to Gambar 1)                   */}
+      {/* 2. TIKTOK INTERFACE CONTAINER (Exact Match to Gambar 1 & Gambar 2)       */}
       {/* ========================================================================= */}
       <div className="flex-1 h-full flex overflow-hidden relative bg-black">
         {/* ================= DESKTOP TIKTOK SIDEBAR (Gambar 1) ================= */}
@@ -454,9 +493,9 @@ export default function TikTokMediaPage() {
           {/* Top Row: TikTok Logo + Collapse Button [|] */}
           <div className="flex items-center justify-between mb-4 w-full">
             {!isTikTokSidebarCollapsed && (
-              <Link href="/media">
+              <div onClick={() => setActiveMenu('saran')}>
                 <TikTokLogo />
-              </Link>
+              </div>
             )}
             <button
               onClick={() => setIsTikTokSidebarCollapsed((prev) => !prev)}
@@ -494,7 +533,7 @@ export default function TikTokMediaPage() {
 
           {/* Navigation Items (Exact Match to Gambar 1 in Indonesian) */}
           <nav className="flex-1 space-y-1 w-full text-[13px] font-bold">
-            {/* Saran (Home / For you - Active in Red) */}
+            {/* 1. Saran (Home / For you - Active in Red) */}
             <button
               onClick={() => setActiveMenu('saran')}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition ${
@@ -507,7 +546,7 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Saran</span>}
             </button>
 
-            {/* Jelajahi */}
+            {/* 2. Jelajahi */}
             <button
               onClick={() => setActiveMenu('jelajahi')}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition ${
@@ -520,7 +559,7 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Jelajahi</span>}
             </button>
 
-            {/* Mengikuti */}
+            {/* 3. Mengikuti */}
             <button
               onClick={() => setActiveMenu('mengikuti')}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition ${
@@ -533,7 +572,7 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Mengikuti</span>}
             </button>
 
-            {/* Teman */}
+            {/* 4. Teman */}
             <button
               onClick={() => setActiveMenu('teman')}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition ${
@@ -546,22 +585,20 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Teman</span>}
             </button>
 
-            {/* LIVE */}
+            {/* 5. LIVE */}
             <button
-              onClick={() => setActiveMenu('live')}
-              className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition ${
-                activeMenu === 'live'
-                  ? 'text-[#FE2C55] bg-white/[0.04]'
-                  : 'text-white hover:bg-white/5'
-              } ${isTikTokSidebarCollapsed ? 'justify-center px-2' : ''}`}
+              onClick={() => setIsLiveModalOpen(true)}
+              className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
+                isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
+              }`}
             >
-              <Radio size={20} className={activeMenu === 'live' ? 'text-[#FE2C55]' : ''} />
+              <Radio size={20} className="text-[#FE2C55] animate-pulse" />
               {!isTikTokSidebarCollapsed && <span>LIVE</span>}
             </button>
 
-            {/* Pesan (Chat with unread count) */}
-            <Link
-              href="/chat"
+            {/* 6. Pesan (TikTok Direct Messages - KHUSUS TIKTOK, TIDAK KE /chat) */}
+            <button
+              onClick={() => setIsMessagesDrawerOpen(true)}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
                 isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
               }`}
@@ -570,16 +607,16 @@ export default function TikTokMediaPage() {
                 <MessageCircle size={20} />
                 {!isTikTokSidebarCollapsed && <span>Pesan</span>}
               </div>
-              {!isTikTokSidebarCollapsed && totalUnread > 0 && (
-                <span className="w-4 h-4 rounded-full bg-[#FE2C55] text-white text-[10px] font-black flex items-center justify-center">
-                  {totalUnread > 9 ? '9+' : totalUnread}
+              {!isTikTokSidebarCollapsed && (
+                <span className="w-4 h-4 rounded-full bg-[#FE2C55] text-white text-[10px] font-black flex items-center justify-center shadow-md">
+                  3
                 </span>
               )}
-            </Link>
+            </button>
 
-            {/* Aktivitas */}
+            {/* 7. Aktivitas */}
             <button
-              onClick={() => setIsUserProfileOpen(true)}
+              onClick={() => setIsActivityDrawerOpen(true)}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
                 isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
               }`}
@@ -588,9 +625,9 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Aktivitas</span>}
             </button>
 
-            {/* Unggah */}
+            {/* 8. Unggah */}
             <button
-              onClick={() => setIsUserProfileOpen(true)}
+              onClick={() => setIsUploadModalOpen(true)}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
                 isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
               }`}
@@ -599,9 +636,15 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Unggah</span>}
             </button>
 
-            {/* Profil */}
+            {/* 9. Profil (TikTok Profile) */}
             <button
-              onClick={() => setIsUserProfileOpen(true)}
+              onClick={() => {
+                if (isTikTokLoggedIn) {
+                  setIsProfileViewOpen(true);
+                } else {
+                  setIsLoginModalOpen(true);
+                }
+              }}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
                 isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
               }`}
@@ -610,9 +653,9 @@ export default function TikTokMediaPage() {
               {!isTikTokSidebarCollapsed && <span>Profil</span>}
             </button>
 
-            {/* Lainnya */}
+            {/* 10. Lainnya */}
             <button
-              onClick={() => setIsUserProfileOpen(true)}
+              onClick={() => setIsMoreMenuOpen(true)}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
                 isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
               }`}
@@ -702,7 +745,7 @@ export default function TikTokMediaPage() {
           )}
         </aside>
 
-        {/* ================= CENTER VIDEO PLAYER (Exact Match to Gambar 1) ================= */}
+        {/* ================= CENTER MAIN VIEW ================= */}
         <main className="flex-1 h-full flex flex-col items-center justify-center relative bg-black overflow-hidden">
           {/* Mobile Top Header (< md): Menu Hamburger + Tabs */}
           <div className="md:hidden absolute top-0 left-0 right-0 z-30 h-14 bg-gradient-to-b from-black/80 to-transparent px-4 flex items-center justify-between">
@@ -713,19 +756,34 @@ export default function TikTokMediaPage() {
               <Menu size={22} />
             </button>
             <div className="flex items-center gap-4 text-sm font-extrabold text-white">
-              <span className="text-white/50 cursor-pointer">Mengikuti</span>
-              <span className="border-b-2 border-white pb-0.5 cursor-pointer">Saran</span>
+              <span
+                onClick={() => setActiveMenu('mengikuti')}
+                className={`cursor-pointer ${
+                  activeMenu === 'mengikuti' ? 'border-b-2 border-white pb-0.5' : 'text-white/50'
+                }`}
+              >
+                Mengikuti
+              </span>
+              <span
+                onClick={() => setActiveMenu('saran')}
+                className={`cursor-pointer ${
+                  activeMenu === 'saran' ? 'border-b-2 border-white pb-0.5' : 'text-white/50'
+                }`}
+              >
+                Saran
+              </span>
             </div>
             <button
-              onClick={() => setIsUserProfileOpen(true)}
+              onClick={() => {
+                if (isTikTokLoggedIn) setIsProfileViewOpen(true);
+                else setIsLoginModalOpen(true);
+              }}
               className="w-7 h-7 rounded-full border border-white/30 overflow-hidden"
             >
               <img
                 src={
-                  user?.avatar_url ||
-                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
-                    user?.username || 'user'
-                  )}`
+                  tiktokUser?.avatar_url ||
+                  'https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/default.jpeg'
                 }
                 alt="Profile"
                 className="w-full h-full object-cover"
@@ -733,11 +791,12 @@ export default function TikTokMediaPage() {
             </button>
           </div>
 
-          {/* Top-Right Tools Capsule (Desktop like Gambar 1) */}
+          {/* Top-Right Tools & Account Dropdown (Exact Match to Gambar 2) */}
           <div className="hidden md:flex items-center gap-3 absolute top-5 right-6 z-30">
+            {/* Desktop / Mobile app icons */}
             <div className="flex items-center gap-2 bg-[#222222]/80 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 shadow-lg">
               <button
-                onClick={() => handleShareVideo(currentVideo || videos[0])}
+                onClick={() => handleShareVideo(currentVideo || displayedVideos[0])}
                 className="p-1 text-white/60 hover:text-white transition"
                 title="Dapatkan Aplikasi Desktop"
               >
@@ -751,33 +810,81 @@ export default function TikTokMediaPage() {
               >
                 <Smartphone size={16} />
               </button>
-              <span className="w-px h-3.5 bg-white/20" />
-              <button
-                onClick={() => setIsUserProfileOpen(true)}
-                className="w-6 h-6 rounded-full overflow-hidden border border-[#FE2C55] transition hover:scale-105"
-                title="Lihat Profil Akun Anda"
-              >
-                <img
-                  src={
-                    user?.avatar_url ||
-                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
-                      user?.username || 'user'
-                    )}`
-                  }
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
-              </button>
+            </div>
+
+            {/* TikTok Account Button & Dropdown (Gambar 2) */}
+            <div className="relative" ref={accountDropdownRef}>
+              {isTikTokLoggedIn && tiktokUser ? (
+                <button
+                  onClick={() => setIsAccountDropdownOpen((prev) => !prev)}
+                  className="w-8 h-8 rounded-full overflow-hidden border-2 border-white/30 hover:border-[#FE2C55] transition shadow-lg flex items-center justify-center bg-[#222222]"
+                  title={`Akun TikTok: ${tiktokUser.nickname}`}
+                >
+                  <img
+                    src={tiktokUser.avatar_url}
+                    alt={tiktokUser.nickname}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="px-4 py-1.5 rounded-full bg-[#FE2C55] hover:bg-[#e02449] text-white font-bold text-xs shadow-lg transition"
+                >
+                  Masuk
+                </button>
+              )}
+
+              {/* Dropdown Menu (Persis Gambar 2) */}
+              {isAccountDropdownOpen && isTikTokLoggedIn && (
+                <div className="absolute right-0 mt-2 w-48 bg-[#222222] border border-white/15 rounded-2xl shadow-2xl py-1.5 z-50 animate-in fade-in">
+                  <button
+                    onClick={() => {
+                      setIsAccountDropdownOpen(false);
+                      setIsProfileViewOpen(true);
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-semibold text-white/90 hover:text-white hover:bg-white/10 flex items-center gap-3 transition"
+                  >
+                    <User size={16} />
+                    <span>Lihat profil</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsAccountDropdownOpen(false);
+                      logoutTikTok();
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-semibold text-white/90 hover:text-white hover:bg-white/10 flex items-center gap-3 transition border-t border-white/10"
+                  >
+                    <LogOut size={16} />
+                    <span>Keluar</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Loading Feed State */}
-          {isLoadingFeed ? (
+          {/* ================= CONDITION 1: EXPLORE VIEW ================= */}
+          {activeMenu === 'jelajahi' ? (
+            <TikTokExploreView
+              videos={videos}
+              onSelectVideo={(v) => {
+                const idx = displayedVideos.findIndex((item) => item.id === v.id);
+                if (idx !== -1) setActiveIndex(idx);
+                setActiveMenu('saran');
+              }}
+              onFilterCategory={(kw) => {
+                setSubmittedQuery(kw);
+              }}
+            />
+          ) : isLoadingFeed ? (
+            /* ================= CONDITION 2: LOADING ================= */
             <div className="flex flex-col items-center justify-center gap-3 text-white/60">
               <div className="w-10 h-10 border-4 border-[#FE2C55] border-t-transparent rounded-full animate-spin" />
               <p className="text-xs font-semibold">Memuat video realtime TikTok...</p>
             </div>
           ) : !currentVideo ? (
+            /* ================= CONDITION 3: EMPTY FEED ================= */
             <div className="flex flex-col items-center justify-center gap-3 text-white/50 text-center px-4">
               <Film size={44} className="opacity-30" />
               <p className="text-sm font-bold">Tidak ada video yang ditemukan.</p>
@@ -789,14 +896,14 @@ export default function TikTokMediaPage() {
               </button>
             </div>
           ) : (
-            /* Main Centered Video + Right Floating Column Structure */
+            /* ================= CONDITION 4: MAIN VIDEO PLAYER (Gambar 1) ================= */
             <div className="relative flex items-center justify-center w-full h-full p-2 sm:p-4">
               {/* VIDEO FRAME BOX */}
               <div
                 onDoubleClick={handleVideoDoubleClick}
                 className="relative h-[86vh] max-h-[820px] aspect-[9/16] bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10 select-none flex items-center justify-center group"
               >
-                {/* Real TikTok Stream Video */}
+                {/* Video */}
                 <video
                   ref={activeVideoRef}
                   key={currentVideo.id}
@@ -1003,7 +1110,7 @@ export default function TikTokMediaPage() {
                 </button>
                 <button
                   onClick={goToNextVideo}
-                  disabled={activeIndex === videos.length - 1}
+                  disabled={activeIndex === displayedVideos.length - 1}
                   className="w-10 h-10 rounded-full bg-[#222222] hover:bg-[#333333] disabled:opacity-30 disabled:hover:bg-[#222222] text-white flex items-center justify-center transition shadow-lg"
                   title="Video Selanjutnya (Arrow Down)"
                 >
@@ -1016,23 +1123,63 @@ export default function TikTokMediaPage() {
       </div>
 
       {/* ================= MODALS & DRAWERS ================= */}
-      {/* 1. Logged-in User Profile Modal */}
-      <UserProfileModal
-        isOpen={isUserProfileOpen}
-        onClose={() => setIsUserProfileOpen(false)}
-        user={user}
-        likedVideosList={likedVideosList}
-        savedVideosList={savedVideosList}
-        onSelectVideo={(v) => {
-          const idx = videos.findIndex((item) => item.id === v.id);
-          if (idx !== -1) setActiveIndex(idx);
-          setIsUserProfileOpen(false);
-        }}
-        onLogout={handleLogout}
-        onUpdateProfile={handleUpdateProfile}
+      {/* 1. TikTok Login Modal (Masuk Akun TikTok via Gmail / Username) */}
+      <TikTokLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
       />
 
-      {/* 2. Scraped Creator Profile Modal */}
+      {/* 2. TikTok Direct Messages Drawer (KHUSUS TIKTOK, BUKAN CHAT DARDCOR) */}
+      <TikTokMessagesDrawer
+        isOpen={isMessagesDrawerOpen}
+        onClose={() => setIsMessagesDrawerOpen(false)}
+        currentUser={tiktokUser}
+        feedVideos={videos}
+      />
+
+      {/* 3. TikTok LIVE Modal */}
+      <TikTokLiveModal
+        isOpen={isLiveModalOpen}
+        onClose={() => setIsLiveModalOpen(false)}
+        currentUser={tiktokUser}
+        video={currentVideo || videos[0]}
+      />
+
+      {/* 4. TikTok Upload Video Studio Modal */}
+      <TikTokUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        currentUser={tiktokUser}
+        onVideoUploaded={handleNewVideoUploaded}
+      />
+
+      {/* 5. TikTok Activity / Notifications Drawer */}
+      <TikTokActivityDrawer
+        isOpen={isActivityDrawerOpen}
+        onClose={() => setIsActivityDrawerOpen(false)}
+      />
+
+      {/* 6. TikTok User Profile Modal / View */}
+      <TikTokProfileView
+        isOpen={isProfileViewOpen}
+        onClose={() => setIsProfileViewOpen(false)}
+        likedVideos={likedVideosList}
+        savedVideos={savedVideosList}
+        uploadedVideos={userUploadedVideos}
+        onSelectVideo={(v) => {
+          const idx = displayedVideos.findIndex((item) => item.id === v.id);
+          if (idx !== -1) setActiveIndex(idx);
+          setActiveMenu('saran');
+        }}
+      />
+
+      {/* 7. TikTok More Settings Menu */}
+      <TikTokMoreMenu
+        isOpen={isMoreMenuOpen}
+        onClose={() => setIsMoreMenuOpen(false)}
+      />
+
+      {/* 8. Scraped Creator Profile Modal */}
       <CreatorProfileModal
         isOpen={isCreatorProfileOpen}
         onClose={() => setIsCreatorProfileOpen(false)}
@@ -1044,19 +1191,27 @@ export default function TikTokMediaPage() {
         }
         onToggleFollow={(id) => handleToggleFollow(id)}
         onSelectVideo={(v) => {
-          const idx = videos.findIndex((item) => item.id === v.id);
+          const idx = displayedVideos.findIndex((item) => item.id === v.id);
           if (idx !== -1) setActiveIndex(idx);
+          setActiveMenu('saran');
           setIsCreatorProfileOpen(false);
         }}
       />
 
-      {/* 3. Live TikTok Comments Drawer */}
+      {/* 9. Live TikTok Comments Drawer */}
       <CommentDrawer
         isOpen={Boolean(activeCommentVideo)}
         onClose={() => setActiveCommentVideo(null)}
         comments={activeCommentVideo ? commentsMap[activeCommentVideo.id] || [] : []}
         isLoading={isLoadingComments}
-        currentUser={user}
+        currentUser={{
+          id: tiktokUser?.id || 'tt_me',
+          username: tiktokUser?.unique_id || 'user',
+          display_name: tiktokUser?.nickname || 'TikTok User',
+          avatar_url: tiktokUser?.avatar_url || '',
+          created_at: '',
+          updated_at: '',
+        }}
         onPostComment={handlePostComment}
         onLikeComment={handleLikeComment}
       />
