@@ -80,7 +80,7 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
     const repliedMsg = replyingToMessage;
     setReplyingToMessage(null);
 
-    const tempId = `msg_${Date.now()}`;
+    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
     const newMsg: Message = {
       id: tempId,
       chat_id: chatId,
@@ -131,8 +131,9 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
       const { url } = await uploadChatMedia(file, file.name, folderMap[type]);
       playMessageSentSound();
 
+      const mediaMsgId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
       const newMsg: Message = {
-        id: `msg_${Date.now()}`,
+        id: mediaMsgId,
         chat_id: chatId,
         sender_id: user.id,
         content: null,
@@ -175,8 +176,9 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
       const { url } = await uploadChatMedia(blob, fileName, 'audios');
       playMessageSentSound();
 
+      const voiceMsgId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
       const newMsg: Message = {
-        id: `msg_${Date.now()}`,
+        id: voiceMsgId,
         chat_id: chatId,
         sender_id: user.id,
         content: null,

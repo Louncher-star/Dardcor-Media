@@ -153,25 +153,36 @@ export function saveChatMessages(chatId: string, messages: Message[]) {
 export async function appendMessage(message: Message, currentUserId: string, otherUserId?: string) {
   if (isSupabaseConfigured()) {
     try {
-      const supabase = createClient();
-      await supabase.from('messages').insert({
-        id: message.id,
-        chat_id: message.chat_id,
-        sender_id: message.sender_id,
-        content: message.content,
-        message_type: message.message_type,
-        media_url: message.media_url,
-        media_name: message.media_name,
-        media_size: message.media_size,
-        media_duration: message.media_duration,
-        reply_to_id: message.reply_to_id,
-      });
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (isUuid.test(message.chat_id)) {
+        const supabase = createClient();
+        const safeMessageId = isUuid.test(message.id)
+          ? message.id
+          : typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
 
-      await supabase
-        .from('chats')
-        .update({ last_message_at: message.created_at })
-        .eq('id', message.chat_id);
-      return;
+        const safeReplyId =
+          message.reply_to_id && isUuid.test(message.reply_to_id) ? message.reply_to_id : null;
+
+        await supabase.from('messages').insert({
+          id: safeMessageId,
+          chat_id: message.chat_id,
+          sender_id: message.sender_id,
+          content: message.content,
+          message_type: message.message_type,
+          media_url: message.media_url,
+          media_name: message.media_name,
+          media_size: message.media_size,
+          media_duration: message.media_duration,
+          reply_to_id: safeReplyId,
+        });
+
+        await supabase
+          .from('chats')
+          .update({ last_message_at: message.created_at })
+          .eq('id', message.chat_id);
+      }
     } catch (err) {
       console.error('Error saving message to Supabase:', err);
     }

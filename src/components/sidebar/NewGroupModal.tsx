@@ -7,7 +7,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { DEMO_CONTACTS } from '@/lib/utils/demoData';
+import { fetchCloudProfiles } from '@/lib/services/authService';
 
 interface NewGroupModalProps {
   isOpen: boolean;
@@ -36,21 +36,13 @@ export function NewGroupModal({ isOpen, onClose }: NewGroupModalProps) {
     }
 
     const fetchContacts = async () => {
-      if (!isSupabaseConfigured()) {
-        setContacts(DEMO_CONTACTS);
-        return;
-      }
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user?.id || '')
-        .order('display_name', { ascending: true });
-
-      if (data) {
-        setContacts(data as Profile[]);
-      } else {
-        setContacts(DEMO_CONTACTS);
+      try {
+        const cloudProfiles = await fetchCloudProfiles();
+        const realUsers = cloudProfiles.filter((u) => u.id !== user?.id);
+        setContacts(realUsers);
+      } catch (e) {
+        console.error('Error fetching real contacts for group:', e);
+        setContacts([]);
       }
     };
 
