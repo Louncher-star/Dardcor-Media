@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { TikTokVideoItem } from '@/app/api/tiktok/route';
 
 export interface TikTokUser {
   id: string;
@@ -14,26 +15,24 @@ export interface TikTokUser {
   following_count: number;
   heart_count: number;
   video_count: number;
+  digg_count?: number;
+  friend_count?: number;
+  user_videos?: TikTokVideoItem[];
+  liked_videos?: TikTokVideoItem[];
+  saved_videos?: TikTokVideoItem[];
 }
 
 interface TikTokAuthState {
   tiktokUser: TikTokUser | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  loginWithTikTok: (identifier: string, isGmail?: boolean) => Promise<boolean>;
-  loginWithScrapedCreator: (creator: {
-    id: string;
-    unique_id: string;
-    nickname: string;
-    avatar: string;
-    signature?: string;
-    follower_count?: number;
-    following_count?: number;
-    heart_count?: number;
-    video_count?: number;
-  }) => void;
+  loginWithTikTok: (identifier: string, isGmail?: boolean, customHandle?: string) => Promise<boolean>;
   logoutTikTok: () => void;
   updateTikTokProfile: (updated: Partial<TikTokUser>) => void;
+  addLikedVideo: (video: TikTokVideoItem) => void;
+  removeLikedVideo: (videoId: string) => void;
+  addSavedVideo: (video: TikTokVideoItem) => void;
+  removeSavedVideo: (videoId: string) => void;
   initSession: () => void;
 }
 
@@ -61,101 +60,70 @@ export const useTikTokAuthStore = create<TikTokAuthState>((set, get) => ({
       }
     } catch {}
 
-    // JANGAN ADA DUMMY STATIS! Jika belum login, statusnya tetap belum login (null)
     set({ tiktokUser: null, isLoggedIn: false });
   },
 
-  // Login dengan kreator real dari scraping TikTok
-  loginWithScrapedCreator: (creator) => {
-    const user: TikTokUser = {
-      id: creator.id || `tt_${creator.unique_id}`,
-      unique_id: creator.unique_id,
-      nickname: creator.nickname,
-      avatar_url: creator.avatar,
-      signature: creator.signature || `Akun resmi TikTok @${creator.unique_id}`,
-      verified: true,
-      follower_count: creator.follower_count || Math.floor(Math.random() * 40000) + 12000,
-      following_count: creator.following_count || Math.floor(Math.random() * 200) + 45,
-      heart_count: creator.heart_count || Math.floor(Math.random() * 800000) + 150000,
-      video_count: creator.video_count || Math.floor(Math.random() * 30) + 8,
-    };
-
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-    } catch {}
-    set({ tiktokUser: user, isLoggedIn: true, isLoading: false });
-  },
-
-  loginWithTikTok: async (identifier: string, isGmail = false) => {
+  loginWithTikTok: async (identifier: string, isGmail = false, customHandle?: string) => {
     set({ isLoading: true });
     try {
-      const cleanIdentifier = identifier.trim().replace(/^@+/, '');
-      if (!cleanIdentifier) {
+      const cleanInput = identifier.trim();
+      if (!cleanInput) {
         set({ isLoading: false });
         return false;
       }
 
-      let user: TikTokUser;
+      // Tentukan target username TikTok yang akan discrape secara real
+      let targetUsername = cleanInput.replace(/^@+/, '');
+      let userEmail: string | undefined = undefined;
 
-      if (isGmail || cleanIdentifier.includes('@')) {
-        // Login via Google / Gmail
-        const namePart = cleanIdentifier.split('@')[0];
-        const displayName = namePart.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-        user = {
-          id: `tt_${Date.now()}`,
-          unique_id: namePart.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
-          nickname: displayName,
-          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanIdentifier)}`,
-          email: cleanIdentifier,
-          signature: `Pengguna TikTok (${cleanIdentifier})`,
-          verified: false,
-          follower_count: 1450,
-          following_count: 52,
-          heart_count: 48900,
-          video_count: 5,
-        };
-      } else {
-        // Login via username TikTok asli dengan scraping real
-        try {
-          const res = await fetch(`/api/tiktok/user?username=${encodeURIComponent(cleanIdentifier)}`);
-          const json = await res.json();
-          if (json.success && json.data) {
-            const data = json.data;
-            user = {
-              id: data.id || `tt_${data.unique_id}`,
-              unique_id: data.unique_id,
-              nickname: data.nickname || cleanIdentifier,
-              avatar_url: data.avatar_url,
-              signature: data.signature || `Akun resmi @${data.unique_id} di TikTok`,
-              verified: Boolean(data.verified),
-              follower_count: data.follower_count || 5200,
-              following_count: data.following_count || 120,
-              heart_count: data.heart_count || 64000,
-              video_count: data.video_count || 12,
-            };
+      if (isGmail || cleanInput.includes('@')) {
+        userEmail = cleanInput;
+        if (customHandle && customHandle.trim()) {
+          targetUsername = customHandle.trim().replace(/^@+/, '');
+        } else {
+          const prefix = cleanInput.split('@')[0].toLowerCase();
+          // Jika email berkaitan dengan dardcor, gunakan username real dardcor
+          if (prefix.includes('dardcor')) {
+            targetUsername = 'dardcor';
           } else {
-            throw new Error('Not found in user endpoint');
+            targetUsername = prefix.replace(/[^a-z0-9_]/g, '_');
           }
-        } catch {
-          // Fallback avatar yang aman dan tidak pernah broken
-          user = {
-            id: `tt_${Date.now()}`,
-            unique_id: cleanIdentifier.toLowerCase(),
-            nickname: cleanIdentifier,
-            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanIdentifier)}`,
-            signature: `Halo! Saya @${cleanIdentifier} di TikTok.`,
-            verified: false,
-            follower_count: 2840,
-            following_count: 64,
-            heart_count: 58200,
-            video_count: 8,
-          };
         }
       }
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-      set({ tiktokUser: user, isLoggedIn: true, isLoading: false });
-      return true;
+      // Panggil endpoint scraper live real TikTok
+      const res = await fetch(`/api/tiktok/user?username=${encodeURIComponent(targetUsername)}`);
+      const json = await res.json();
+
+      if (json.success && json.data) {
+        const data = json.data;
+        const user: TikTokUser = {
+          id: data.id || `tt_${data.unique_id}`,
+          unique_id: data.unique_id,
+          nickname: data.nickname || targetUsername,
+          avatar_url: data.avatar_url,
+          email: userEmail,
+          signature: data.signature || '',
+          verified: Boolean(data.verified),
+          follower_count: data.follower_count || 0,
+          following_count: data.following_count || 0,
+          heart_count: data.heart_count || 0,
+          video_count: data.video_count || 0,
+          digg_count: data.digg_count || 0,
+          friend_count: data.friend_count || 0,
+          user_videos: data.videos || [],
+          liked_videos: data.liked_videos || [],
+          saved_videos: data.favorite_videos || [],
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+        set({ tiktokUser: user, isLoggedIn: true, isLoading: false });
+        return true;
+      } else {
+        // Jika akun tidak ditemukan sama sekali di TikTok
+        set({ isLoading: false });
+        return false;
+      }
     } catch (err) {
       console.error('Error logging into TikTok:', err);
       set({ isLoading: false });
@@ -178,5 +146,63 @@ export const useTikTokAuthStore = create<TikTokAuthState>((set, get) => ({
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {}
     set({ tiktokUser: next });
+  },
+
+  addLikedVideo: (video: TikTokVideoItem) => {
+    const current = get().tiktokUser;
+    if (!current) return;
+    const existing = current.liked_videos || [];
+    if (existing.some((v) => v.id === video.id)) return;
+    const nextList = [video, ...existing];
+    const nextUser = {
+      ...current,
+      liked_videos: nextList,
+      digg_count: (current.digg_count || existing.length) + 1,
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
+    } catch {}
+    set({ tiktokUser: nextUser });
+  },
+
+  removeLikedVideo: (videoId: string) => {
+    const current = get().tiktokUser;
+    if (!current) return;
+    const existing = current.liked_videos || [];
+    const nextList = existing.filter((v) => v.id !== videoId);
+    const nextUser = {
+      ...current,
+      liked_videos: nextList,
+      digg_count: Math.max(0, (current.digg_count || existing.length) - 1),
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
+    } catch {}
+    set({ tiktokUser: nextUser });
+  },
+
+  addSavedVideo: (video: TikTokVideoItem) => {
+    const current = get().tiktokUser;
+    if (!current) return;
+    const existing = current.saved_videos || [];
+    if (existing.some((v) => v.id === video.id)) return;
+    const nextList = [video, ...existing];
+    const nextUser = { ...current, saved_videos: nextList };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
+    } catch {}
+    set({ tiktokUser: nextUser });
+  },
+
+  removeSavedVideo: (videoId: string) => {
+    const current = get().tiktokUser;
+    if (!current) return;
+    const existing = current.saved_videos || [];
+    const nextList = existing.filter((v) => v.id !== videoId);
+    const nextUser = { ...current, saved_videos: nextList };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
+    } catch {}
+    set({ tiktokUser: nextUser });
   },
 }));

@@ -98,6 +98,10 @@ export default function TikTokMediaPage() {
     isLoggedIn: isTikTokLoggedIn,
     initSession: initTikTokSession,
     logoutTikTok,
+    addLikedVideo,
+    removeLikedVideo,
+    addSavedVideo,
+    removeSavedVideo,
   } = useTikTokAuthStore();
 
   // Feed & navigation
@@ -332,6 +336,15 @@ export default function TikTokMediaPage() {
     const isCurrentlyLiked = Boolean(likedVideoIds[videoId]);
     setLikedVideoIds((prev) => ({ ...prev, [videoId]: !isCurrentlyLiked }));
 
+    const targetVid = displayedVideos.find((v) => v.id === videoId);
+    if (targetVid) {
+      if (!isCurrentlyLiked) {
+        addLikedVideo(targetVid);
+      } else {
+        removeLikedVideo(videoId);
+      }
+    }
+
     setVideos((prev) =>
       prev.map((v) =>
         v.id === videoId
@@ -346,7 +359,17 @@ export default function TikTokMediaPage() {
 
   // 5. Toggle Favorite
   const handleToggleFavorite = (videoId: string) => {
-    setFavoritedVideoIds((prev) => ({ ...prev, [videoId]: !prev[videoId] }));
+    const isFav = Boolean(favoritedVideoIds[videoId]);
+    setFavoritedVideoIds((prev) => ({ ...prev, [videoId]: !isFav }));
+
+    const targetVid = displayedVideos.find((v) => v.id === videoId);
+    if (targetVid) {
+      if (!isFav) {
+        addSavedVideo(targetVid);
+      } else {
+        removeSavedVideo(videoId);
+      }
+    }
   };
 
   // 6. Toggle Follow
@@ -1144,7 +1167,6 @@ export default function TikTokMediaPage() {
       <TikTokLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
-        feedCreators={suggestedCreators}
       />
 
       {/* 2. TikTok Direct Messages Drawer (KHUSUS TIKTOK, BUKAN CHAT DARDCOR) */}
