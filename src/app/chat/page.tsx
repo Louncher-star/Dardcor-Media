@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Film, MessageSquare } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { StatusDrawer } from '@/components/status/StatusDrawer';
@@ -107,25 +105,6 @@ export default function DardcorChatApp() {
           onClose={() => setIsStatusOpen(false)}
         />
       </div>
-
-      {/* Floating Mobile Bottom Action Bar (ketika di daftar obrolan HP) */}
-      {!activeChatId && (
-        <div className="md:hidden fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm bg-[#130f24]/95 backdrop-blur-xl border border-purple-500/35 rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl shadow-purple-950/80">
-          <div className="flex items-center gap-2">
-            <Link
-              href="/media"
-              className="flex items-center gap-1 text-xs font-medium text-purple-200/70 hover:text-white px-2.5 py-1 rounded-lg transition"
-            >
-              <Film size={15} />
-              <span>Media</span>
-            </Link>
-            <button className="flex items-center gap-1 text-xs font-bold text-[#c084fc] px-2.5 py-1 bg-purple-600/20 rounded-lg">
-              <MessageSquare size={15} />
-              <span>Chat</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

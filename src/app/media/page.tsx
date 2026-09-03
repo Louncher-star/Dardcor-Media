@@ -628,44 +628,6 @@ export default function MediaFeedPage() {
               </div>
             </div>
           )}
-
-          {/* Floating Mobile Bottom Action Bar */}
-          <div className="md:hidden fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm bg-[#130f24]/95 backdrop-blur-xl border border-purple-500/35 rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl shadow-purple-950/80">
-            <div className="flex items-center gap-2">
-              <button className="flex items-center gap-1 text-xs font-bold text-[#c084fc] px-2.5 py-1 bg-purple-600/20 rounded-lg">
-                <Film size={15} />
-                <span>Media</span>
-              </button>
-              <Link
-                href="/chat"
-                className="flex items-center gap-1 text-xs font-medium text-purple-200/70 hover:text-white px-2.5 py-1 rounded-lg transition"
-              >
-                <MessageSquare size={15} />
-                <span>Chat</span>
-              </Link>
-            </div>
-
-            {/* Quick Prev & Next Controls for Mobile */}
-            {viewMode === 'reels' && (
-              <div className="flex items-center gap-1.5 border-l border-purple-500/30 pl-3">
-                <button
-                  onClick={handlePrevVideo}
-                  disabled={activeIndex === 0}
-                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 disabled:opacity-30 transition"
-                  title="Sebelumnya (Scroll Up)"
-                >
-                  <ChevronUp size={18} />
-                </button>
-                <button
-                  onClick={handleNextVideo}
-                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-purple-200 transition"
-                  title="Selanjutnya (Scroll Down)"
-                >
-                  <ChevronDown size={18} />
-                </button>
-              </div>
-            )}
-          </div>
         </main>
       </div>
     </div>
