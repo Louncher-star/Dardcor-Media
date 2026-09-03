@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Film, MessageSquare } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { StatusDrawer } from '@/components/status/StatusDrawer';
@@ -11,6 +13,7 @@ import { getCurrentUser, clearAuthCookie, saveRegisteredUserToCloud } from '@/li
 import { fetchUserChats, subscribeToLocalSync } from '@/lib/services/chatService';
 import { useRealtimeChat } from '@/lib/hooks/useRealtimeChat';
 import { usePresence } from '@/lib/hooks/usePresence';
+import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
 
 export default function DardcorChatApp() {
   const router = useRouter();
@@ -28,38 +31,28 @@ export default function DardcorChatApp() {
 
     const initUserAndChats = async () => {
       setLoading(true);
-
       const currentUser = await getCurrentUser();
 
-      // Jika belum login atau sesi tidak valid, alihkan ke login
       if (!currentUser) {
         clearAuthCookie();
-        setLoading(false);
-        router.replace('/login');
+        router.push('/login');
         return;
       }
 
       setUser(currentUser);
-      // Pastikan profil user ini tersinkronisasi ke database cloud Supabase
+
+      // Sinkronkan akun pengguna ke cloud database Supabase
       saveRegisteredUserToCloud(currentUser);
 
-      // Ambil obrolan riil milik pengguna ini
-      try {
-        const userChats = await fetchUserChats(currentUser.id);
-        setChats(userChats);
-      } catch (e) {
-        console.error('Error fetching user chats:', e);
-        setChats([]);
-      }
+      // Ambil daftar chat pengguna dari Supabase Cloud / local
+      const loadedChats = await fetchUserChats(currentUser.id);
+      setChats(loadedChats);
 
-      // Langganan sinkronisasi multi-tab
+      // Dengarkan event sinkronisasi antar-tab
       unsubscribeSync = subscribeToLocalSync(async (event) => {
         if (event.type === 'CHATS_UPDATED') {
-          const payload = event.payload as { userId: string };
-          if (payload.userId === currentUser.id) {
-            const updated = await fetchUserChats(currentUser.id);
-            setChats(updated);
-          }
+          const freshChats = await fetchUserChats(currentUser.id);
+          setChats(freshChats);
         }
       });
 
@@ -87,6 +80,9 @@ export default function DardcorChatApp() {
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--wa-bg-app)] relative selection:bg-[#7c3aed] selection:text-white">
       {/* Main Container */}
       <div className="flex-1 w-full h-full flex overflow-hidden relative">
+        {/* Unified Navigation Sidebar on Desktop (Shared with /media) */}
+        <AppNavigationSidebar />
+
         {/* Sidebar Container: on mobile, hidden if activeChatId is set */}
         <div
           className={`h-full ${
@@ -111,6 +107,25 @@ export default function DardcorChatApp() {
           onClose={() => setIsStatusOpen(false)}
         />
       </div>
+
+      {/* Floating Mobile Bottom Action Bar (ketika di daftar obrolan HP) */}
+      {!activeChatId && (
+        <div className="md:hidden fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-sm bg-[#130f24]/95 backdrop-blur-xl border border-purple-500/35 rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl shadow-purple-950/80">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/media"
+              className="flex items-center gap-1 text-xs font-medium text-purple-200/70 hover:text-white px-2.5 py-1 rounded-lg transition"
+            >
+              <Film size={15} />
+              <span>Media</span>
+            </Link>
+            <button className="flex items-center gap-1 text-xs font-bold text-[#c084fc] px-2.5 py-1 bg-purple-600/20 rounded-lg">
+              <MessageSquare size={15} />
+              <span>Chat</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
