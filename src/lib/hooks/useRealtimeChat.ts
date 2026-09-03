@@ -7,24 +7,26 @@ import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Message, MessageReaction } from '@/types';
 import { playMessageReceivedSound } from '@/lib/utils/soundUtils';
 import { fetchUserChats } from '@/lib/services/chatService';
+import { isValidUuid, toValidUuid } from '@/lib/utils/uuidUtils';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 export function useRealtimeChat(activeChatId: string | null) {
   const { user } = useAuthStore();
-  const { addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setChats } = useChatStore();
 
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) return;
 
+    const safeUserId = toValidUuid(user.id);
     const supabase = createClient();
     let messagesChannel: RealtimeChannel | null = null;
     let reactionsChannel: RealtimeChannel | null = null;
+    let broadcastChannel: RealtimeChannel | null = null;
 
     try {
       // Buat nama channel unik per session user agar tidak bertabrakan jika re-mount
       const uniqueSuffix = Math.random().toString(36).substring(2, 8);
-      const msgChannelName = `user_msgs_${user.id}_${uniqueSuffix}`;
-      const reactChannelName = `user_reacts_${user.id}_${uniqueSuffix}`;
+      const msgChannelName = `user_msgs_${safeUserId}_${uniqueSuffix}`;
+      const reactChannelName = `user_reacts_${safeUserId}_${uniqueSuffix}`;
 
       // 1. Channel untuk mendengarkan pesan masuk
       messagesChannel = supabase
@@ -36,29 +38,31 @@ export function useRealtimeChat(activeChatId: string | null) {
             try {
               const newMessage = payload.new as Message;
 
-              // Ambil data sender profile jika ada
-              const { data: senderProfile } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', newMessage.sender_id)
-                .maybeSingle();
+              // Ambil data sender profile jika ada dan id valid UUID
+              if (newMessage.sender_id && isValidUuid(newMessage.sender_id)) {
+                const { data: senderProfile } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .eq('id', newMessage.sender_id)
+                  .maybeSingle();
 
-              if (senderProfile) {
-                newMessage.sender = senderProfile;
+                if (senderProfile) {
+                  newMessage.sender = senderProfile;
+                }
               }
 
-              addMessage(newMessage);
+              useChatStore.getState().addMessage(newMessage);
 
               // Jika chat belum ada di daftar sidebar, ambil ulang obrolan user
               const currentChats = useChatStore.getState().chats;
               if (!currentChats.some((c) => c.id === newMessage.chat_id)) {
-                fetchUserChats(user.id).then((fresh) => {
-                  setChats(fresh);
+                fetchUserChats(safeUserId).then((fresh) => {
+                  useChatStore.getState().setChats(fresh);
                 });
               }
 
               // Bunyikan notifikasi jika pesan dari orang lain
-              if (newMessage.sender_id !== user.id) {
+              if (newMessage.sender_id !== safeUserId && newMessage.sender_id !== user.id) {
                 playMessageReceivedSound();
 
                 // Jika chat ini sedang dibuka, tandai pesan dibaca
@@ -67,7 +71,7 @@ export function useRealtimeChat(activeChatId: string | null) {
                     .from('message_statuses')
                     .upsert({
                       message_id: newMessage.id,
-                      user_id: user.id,
+                      user_id: safeUserId,
                       status: 'read',
                       updated_at: new Date().toISOString(),
                     });
@@ -83,7 +87,7 @@ export function useRealtimeChat(activeChatId: string | null) {
           { event: 'UPDATE', schema: 'public', table: 'messages' },
           (payload) => {
             const updated = payload.new as Message;
-            updateMessage(updated.chat_id, updated.id, updated);
+            useChatStore.getState().updateMessage(updated.chat_id, updated.id, updated);
           }
         )
         .on(
@@ -92,7 +96,7 @@ export function useRealtimeChat(activeChatId: string | null) {
           (payload) => {
             const deleted = payload.old as { id: string; chat_id: string };
             if (deleted && deleted.id && deleted.chat_id) {
-              deleteMessage(deleted.chat_id, deleted.id, false);
+              useChatStore.getState().deleteMessage(deleted.chat_id, deleted.id, false);
             }
           }
         );
@@ -108,7 +112,7 @@ export function useRealtimeChat(activeChatId: string | null) {
           (payload) => {
             const newReaction = payload.new as MessageReaction;
             if (activeChatId) {
-              addReaction(activeChatId, newReaction);
+              useChatStore.getState().addReaction(activeChatId, newReaction);
             }
           }
         )
@@ -118,7 +122,7 @@ export function useRealtimeChat(activeChatId: string | null) {
           (payload) => {
             const oldReaction = payload.old as { message_id: string; user_id: string };
             if (activeChatId && oldReaction) {
-              removeReaction(activeChatId, oldReaction.message_id, oldReaction.user_id);
+              useChatStore.getState().removeReaction(activeChatId, oldReaction.message_id, oldReaction.user_id);
             }
           }
         );
@@ -126,15 +130,15 @@ export function useRealtimeChat(activeChatId: string | null) {
       reactionsChannel.subscribe();
 
       // 3. Channel WebSocket Broadcast Realtime
-      const broadcastChannel = supabase
+      broadcastChannel = supabase
         .channel('dardcor_chat_broadcast')
         .on('broadcast', { event: 'NEW_MESSAGE' }, async ({ payload }) => {
           try {
             const newMsg = payload as Message;
-            if (!newMsg || newMsg.sender_id === user.id) return;
+            if (!newMsg || newMsg.sender_id === safeUserId || newMsg.sender_id === user.id) return;
 
             // Pastikan data profile pengirim terpasang
-            if (!newMsg.sender && newMsg.sender_id) {
+            if (!newMsg.sender && newMsg.sender_id && isValidUuid(newMsg.sender_id)) {
               const { data: senderProfile } = await supabase
                 .from('profiles')
                 .select('*')
@@ -143,12 +147,13 @@ export function useRealtimeChat(activeChatId: string | null) {
               if (senderProfile) newMsg.sender = senderProfile;
             }
 
-            addMessage(newMsg);
+            useChatStore.getState().addMessage(newMsg);
 
             const currentChats = useChatStore.getState().chats;
             if (!currentChats.some((c) => c.id === newMsg.chat_id)) {
-              const fresh = await fetchUserChats(user.id);
-              setChats(fresh);
+              fetchUserChats(safeUserId).then((fresh) => {
+                useChatStore.getState().setChats(fresh);
+              });
             }
 
             playMessageReceivedSound();
@@ -159,9 +164,15 @@ export function useRealtimeChat(activeChatId: string | null) {
         .on('broadcast', { event: 'NEW_CHAT' }, async ({ payload }) => {
           try {
             const data = payload as { chatId: string; recipientId: string };
-            if (data && (data.recipientId === user.id || data.recipientId === 'ALL')) {
-              const fresh = await fetchUserChats(user.id);
-              setChats(fresh);
+            if (
+              data &&
+              (data.recipientId === safeUserId ||
+                data.recipientId === user.id ||
+                data.recipientId === 'ALL')
+            ) {
+              fetchUserChats(safeUserId).then((fresh) => {
+                useChatStore.getState().setChats(fresh);
+              });
             }
           } catch (err) {
             console.error('Error handling NEW_CHAT broadcast:', err);
@@ -178,5 +189,5 @@ export function useRealtimeChat(activeChatId: string | null) {
     } catch (e) {
       console.error('Realtime subscription error:', e);
     }
-  }, [user?.id, activeChatId, addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setChats]);
+  }, [user?.id, activeChatId]);
 }

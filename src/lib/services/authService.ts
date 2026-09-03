@@ -1,5 +1,6 @@
 import { Profile } from '@/types';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { isValidUuid, toValidUuid } from '@/lib/utils/uuidUtils';
 
 export interface RegisteredAccount extends Profile {
   email: string;
@@ -11,7 +12,8 @@ const CURRENT_USER_KEY = 'dardcor_current_user';
 
 export function setAuthCookie(userId: string) {
   if (typeof document === 'undefined') return;
-  document.cookie = `dardcor_auth_token=${encodeURIComponent(userId)}; path=/; max-age=2592000; SameSite=Lax`;
+  const safeId = toValidUuid(userId);
+  document.cookie = `dardcor_auth_token=${encodeURIComponent(safeId)}; path=/; max-age=2592000; SameSite=Lax`;
 }
 
 export function clearAuthCookie() {
@@ -50,11 +52,15 @@ export async function saveRegisteredUserToCloud(
   email?: string,
   password?: string
 ): Promise<boolean> {
+  if (!profile) return false;
+  const safeId = toValidUuid(profile.id);
+  profile.id = safeId;
+
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
       const payload: Record<string, unknown> = {
-        id: profile.id,
+        id: safeId,
         username: profile.username,
         display_name: profile.display_name,
         avatar_url: profile.avatar_url,
@@ -179,6 +185,11 @@ export async function getCurrentUser(): Promise<Profile | null> {
   // 2. Cek sesi lokal (tersimpan di localStorage)
   const storedUser = getStoredCurrentUser();
   if (storedUser) {
+    if (!isValidUuid(storedUser.id)) {
+      const validId = toValidUuid(storedUser.id);
+      storedUser.id = validId;
+      setStoredCurrentUser(storedUser);
+    }
     setAuthCookie(storedUser.id);
     // Sinkronkan ke cloud jika belum ada
     saveRegisteredUserToCloud(storedUser);

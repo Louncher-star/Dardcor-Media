@@ -1,5 +1,6 @@
 import { Chat, Message, Profile } from '@/types';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { toValidUuid } from '@/lib/utils/uuidUtils';
 
 const CHATS_PREFIX = 'dardcor_chats_';
 const MESSAGES_PREFIX = 'dardcor_messages_';
@@ -27,6 +28,7 @@ export function broadcastLocalSync(type: string, payload: unknown) {
 
 // 1. Ambil daftar chat milik user
 export async function fetchUserChats(userId: string): Promise<Chat[]> {
+  const safeUserId = toValidUuid(userId);
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -35,7 +37,7 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
       const { data: myParticipations, error: pError } = await supabase
         .from('chat_participants')
         .select('*')
-        .eq('user_id', userId);
+        .eq('user_id', safeUserId);
 
       if (pError) {
         console.error('Error fetching chat_participants from Supabase:', pError);
@@ -206,57 +208,55 @@ export function saveChatMessages(chatId: string, messages: Message[]) {
 
 // 5. Tambah pesan baru
 export async function appendMessage(message: Message, currentUserId: string, otherUserId?: string) {
+  const safeCurrentUserId = toValidUuid(currentUserId);
+  const safeOtherUserId = otherUserId ? toValidUuid(otherUserId) : undefined;
+  const safeChatId = toValidUuid(message.chat_id);
+  const safeSenderId = toValidUuid(message.sender_id);
+
   if (isSupabaseConfigured()) {
     try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (isUuid.test(message.chat_id)) {
-        const supabase = createClient();
+      const supabase = createClient();
 
-        // A. Pastikan chat_id sudah terdaftar di tabel chats di cloud database Supabase
-        const { data: existingChat } = await supabase
-          .from('chats')
-          .select('id')
-          .eq('id', message.chat_id)
-          .maybeSingle();
+      // A. Pastikan chat_id sudah terdaftar di tabel chats di cloud database Supabase
+      const { data: existingChat } = await supabase
+        .from('chats')
+        .select('id')
+        .eq('id', safeChatId)
+        .maybeSingle();
 
-        if (!existingChat) {
-          await supabase.from('chats').upsert({
-            id: message.chat_id,
-            is_group: false,
-            created_by: currentUserId,
-            last_message_at: message.created_at,
-          });
-
-          // Daftarkan kedua pengguna ke chat_participants
-          const participantsList = [{ chat_id: message.chat_id, user_id: currentUserId }];
-          if (otherUserId && otherUserId !== currentUserId && isUuid.test(otherUserId)) {
-            participantsList.push({ chat_id: message.chat_id, user_id: otherUserId });
-          }
-          await supabase.from('chat_participants').upsert(participantsList);
-        }
-
-        // B. Simpan pesan ke tabel messages
-        const safeMessageId = isUuid.test(message.id)
-          ? message.id
-          : typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
-
-        const safeReplyId =
-          message.reply_to_id && isUuid.test(message.reply_to_id) ? message.reply_to_id : null;
-
-        await supabase.from('messages').insert({
-          id: safeMessageId,
-          chat_id: message.chat_id,
-          sender_id: message.sender_id,
-          content: message.content,
-          message_type: message.message_type,
-          media_url: message.media_url,
-          media_name: message.media_name,
-          media_size: message.media_size,
-          media_duration: message.media_duration,
-          reply_to_id: safeReplyId,
+      if (!existingChat) {
+        await supabase.from('chats').upsert({
+          id: safeChatId,
+          is_group: false,
+          created_by: safeCurrentUserId,
+          last_message_at: message.created_at,
         });
+
+        // Daftarkan kedua pengguna ke chat_participants
+        const participantsList = [{ chat_id: safeChatId, user_id: safeCurrentUserId }];
+        if (safeOtherUserId && safeOtherUserId !== safeCurrentUserId) {
+          participantsList.push({ chat_id: safeChatId, user_id: safeOtherUserId });
+        }
+        await supabase.from('chat_participants').upsert(participantsList);
+      }
+
+      // B. Simpan pesan ke tabel messages
+      const safeMessageId = toValidUuid(message.id);
+      const safeReplyId =
+        message.reply_to_id ? toValidUuid(message.reply_to_id) : null;
+
+      await supabase.from('messages').insert({
+        id: safeMessageId,
+        chat_id: safeChatId,
+        sender_id: safeSenderId,
+        content: message.content,
+        message_type: message.message_type,
+        media_url: message.media_url,
+        media_name: message.media_name,
+        media_size: message.media_size,
+        media_duration: message.media_duration,
+        reply_to_id: safeReplyId,
+      });
 
         // C. Perbarui waktu pesan terakhir di chat
         await supabase
@@ -264,14 +264,13 @@ export async function appendMessage(message: Message, currentUserId: string, oth
           .update({ last_message_at: message.created_at })
           .eq('id', message.chat_id);
 
-        // D. Broadcast via Supabase Realtime Channel untuk pengiriman instan multi-device
-        const broadcastChannel = supabase.channel('dardcor_chat_broadcast');
-        broadcastChannel.send({
-          type: 'broadcast',
-          event: 'NEW_MESSAGE',
-          payload: message,
-        });
-      }
+      // D. Broadcast via Supabase Realtime Channel untuk pengiriman instan multi-device
+      const broadcastChannel = supabase.channel('dardcor_chat_broadcast');
+      broadcastChannel.send({
+        type: 'broadcast',
+        event: 'NEW_MESSAGE',
+        payload: message,
+      });
     } catch (err) {
       console.error('Error saving message to Supabase:', err);
     }

@@ -15,6 +15,7 @@ import {
   setStoredCurrentUser,
   getRegisteredUsers,
 } from '@/lib/services/authService';
+import { toValidUuid } from '@/lib/utils/uuidUtils';
 
 const AVATAR_PRESETS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -53,7 +54,7 @@ export function RegisterForm() {
     }
 
     // Default ID berupa valid UUID untuk PostgreSQL
-    let assignedId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'usr_' + Date.now();
+    let assignedId = toValidUuid();
 
     // 1. Jika Supabase dikonfigurasi
     if (isSupabaseConfigured()) {
