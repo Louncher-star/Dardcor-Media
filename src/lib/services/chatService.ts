@@ -30,87 +30,92 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
-      const { data: participantsData } = await supabase
+
+      // A. Ambil chat_id di mana user ini menjadi partisipan
+      const { data: myParticipations, error: pError } = await supabase
         .from('chat_participants')
-        .select(`
-          chat_id,
-          chat:chats!chat_id (
-            id,
-            is_group,
-            group_name,
-            group_description,
-            group_avatar_url,
-            created_by,
-            last_message_at,
-            created_at,
-            updated_at,
-            participants:chat_participants (
-              id,
-              chat_id,
-              user_id,
-              role,
-              is_pinned,
-              is_archived,
-              is_muted,
-              last_read_at,
-              joined_at,
-              profile:profiles!user_id (*)
-            )
-          )
-        `)
+        .select('*')
         .eq('user_id', userId);
 
-      if (participantsData && participantsData.length > 0) {
-        const loadedChats: Chat[] = participantsData
-          .map((item) => {
-            const rawChat = item.chat as unknown as Chat;
-            if (!rawChat) return null;
+      if (pError) {
+        console.error('Error fetching chat_participants from Supabase:', pError);
+      }
 
-            let otherParticipant = undefined;
-            if (!rawChat.is_group && rawChat.participants) {
-              const other = rawChat.participants.find((p) => p.user_id !== userId);
-              otherParticipant = other?.profile;
-            }
+      if (myParticipations && myParticipations.length > 0) {
+        const chatIds = myParticipations.map((p) => p.chat_id);
 
-            return {
-              ...rawChat,
-              other_participant: otherParticipant,
-            };
-          })
-          .filter(Boolean) as Chat[];
+        // B. Ambil data chats
+        const { data: chatsData } = await supabase
+          .from('chats')
+          .select('*')
+          .in('id', chatIds);
 
-        // Ambil pesan terakhir untuk setiap chat dari database Supabase
-        if (loadedChats.length > 0) {
-          const chatIds = loadedChats.map((c) => c.id);
+        if (chatsData && chatsData.length > 0) {
+          // C. Ambil seluruh partisipan untuk chat-chat tersebut
+          const { data: allParticipants } = await supabase
+            .from('chat_participants')
+            .select('*')
+            .in('chat_id', chatIds);
+
+          // D. Ambil profil seluruh user yang terlibat
+          const userIds = [
+            ...new Set((allParticipants || []).map((p) => p.user_id).filter(Boolean)),
+          ];
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('*')
+            .in('id', userIds);
+
+          const profileMap = new Map((profiles || []).map((p) => [p.id, p as Profile]));
+
+          // E. Ambil pesan terakhir untuk tiap chat
           const { data: latestMessages } = await supabase
             .from('messages')
             .select('*')
             .in('chat_id', chatIds)
             .order('created_at', { ascending: false });
 
-          if (latestMessages && latestMessages.length > 0) {
-            for (const chat of loadedChats) {
-              const latest = latestMessages.find((m) => m.chat_id === chat.id);
-              if (latest) {
-                chat.last_message = latest as Message;
-                chat.last_message_at = latest.created_at;
+          // F. Gabungkan menjadi struktur Chat yang lengkap & teratur
+          const loadedChats: Chat[] = chatsData.map((chat) => {
+            const chatPartis = (allParticipants || []).filter((p) => p.chat_id === chat.id);
+            const enrichedParticipants = chatPartis.map((p) => ({
+              ...p,
+              profile: profileMap.get(p.user_id),
+            }));
+
+            let otherParticipant = undefined;
+            if (!chat.is_group) {
+              const other = chatPartis.find((p) => p.user_id !== userId);
+              if (other) {
+                otherParticipant = profileMap.get(other.user_id);
               }
             }
-          }
-        }
 
-        loadedChats.sort(
-          (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
-        );
-        return loadedChats;
+            const lastMsg = (latestMessages || []).find((m) => m.chat_id === chat.id);
+
+            return {
+              ...chat,
+              participants: enrichedParticipants,
+              other_participant: otherParticipant,
+              last_message: lastMsg as Message | undefined,
+              last_message_at: lastMsg?.created_at || chat.last_message_at,
+            };
+          });
+
+          loadedChats.sort(
+            (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+          );
+
+          saveUserChats(userId, loadedChats);
+          return loadedChats;
+        }
       }
-      return [];
     } catch (err) {
       console.error('Error fetching chats from Supabase:', err);
     }
   }
 
-  // Local Storage
+  // Local Storage Fallback
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
@@ -132,20 +137,50 @@ export async function fetchChatMessages(chatId: string): Promise<Message[]> {
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
-      const { data: messagesData } = await supabase
+      // A. Ambil pesan murni
+      const { data: messagesData, error: msgError } = await supabase
         .from('messages')
-        .select(`
-          *,
-          sender:profiles!sender_id (*),
-          reply_to:messages!reply_to_id (*, sender:profiles!sender_id (*)),
-          reactions:message_reactions (*),
-          statuses:message_statuses (*)
-        `)
+        .select('*')
         .eq('chat_id', chatId)
         .order('created_at', { ascending: true });
 
+      if (msgError) {
+        console.error('Error fetching messages from Supabase:', msgError);
+      }
+
       if (messagesData) {
-        return messagesData as unknown as Message[];
+        // B. Ambil profil sender
+        const senderIds = [
+          ...new Set(messagesData.map((m) => m.sender_id).filter(Boolean)),
+        ];
+        const { data: senderProfiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', senderIds);
+
+        const profileMap = new Map((senderProfiles || []).map((p) => [p.id, p as Profile]));
+
+        // C. Ambil reactions & statuses
+        const messageIds = messagesData.map((m) => m.id);
+        const { data: reactions } = await supabase
+          .from('message_reactions')
+          .select('*')
+          .in('message_id', messageIds);
+
+        const { data: statuses } = await supabase
+          .from('message_statuses')
+          .select('*')
+          .in('message_id', messageIds);
+
+        const assembled: Message[] = messagesData.map((msg) => ({
+          ...msg,
+          sender: profileMap.get(msg.sender_id),
+          reactions: (reactions || []).filter((r) => r.message_id === msg.id),
+          statuses: (statuses || []).filter((s) => s.message_id === msg.id),
+        }));
+
+        saveChatMessages(chatId, assembled);
+        return assembled;
       }
     } catch (err) {
       console.error('Error fetching messages from Supabase:', err);

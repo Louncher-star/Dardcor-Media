@@ -8,7 +8,7 @@ import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { fetchCloudProfiles, saveRegisteredUserToCloud } from '@/lib/services/authService';
-import { saveUserChats, broadcastLocalSync } from '@/lib/services/chatService';
+import { fetchUserChats, saveUserChats, broadcastLocalSync } from '@/lib/services/chatService';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -18,7 +18,7 @@ interface NewChatModalProps {
 
 export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalProps) {
   const { user } = useAuthStore();
-  const { chats, addChat, setActiveChatId } = useChatStore();
+  const { chats, addChat, setActiveChatId, setChats } = useChatStore();
 
   const [search, setSearch] = useState('');
   const [usersList, setUsersList] = useState<Profile[]>([]);
@@ -62,7 +62,7 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
     setIsCreatingChat(targetUser.id);
 
     try {
-      // 1. Cek apakah obrolan 1-on-1 dengan pengguna ini sudah pernah dibuat sebelumnya
+      // 1. Cek apakah obrolan 1-on-1 dengan pengguna ini sudah pernah dibuat sebelumnya di state lokal
       const existingChat = chats.find(
         (c) =>
           !c.is_group &&
@@ -76,7 +76,34 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
         return;
       }
 
-      // 2. Generate UUID standar PostgreSQL
+      // 2. Cek apakah obrolan bersama sudah ada di database Supabase Cloud
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { data: myParts } = await supabase
+          .from('chat_participants')
+          .select('chat_id')
+          .eq('user_id', user.id);
+
+        if (myParts && myParts.length > 0) {
+          const myChatIds = myParts.map((p) => p.chat_id);
+          const { data: theirParts } = await supabase
+            .from('chat_participants')
+            .select('chat_id')
+            .eq('user_id', targetUser.id)
+            .in('chat_id', myChatIds);
+
+          if (theirParts && theirParts.length > 0) {
+            const matchedChatId = theirParts[0].chat_id;
+            const freshChats = await fetchUserChats(user.id);
+            setChats(freshChats);
+            setActiveChatId(matchedChatId);
+            onClose();
+            return;
+          }
+        }
+      }
+
+      // 3. Generate UUID standar PostgreSQL jika benar-benar obrolan baru
       const newChatId =
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
@@ -252,7 +279,8 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
           filteredUsers.map((target) => (
             <div
               key={target.id}
-              className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-[var(--wa-hover)] transition select-none border-b border-[var(--wa-border)]/30"
+              onClick={() => handleSelectUser(target)}
+              className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-[var(--wa-hover)] cursor-pointer transition select-none border-b border-[var(--wa-border)]/30"
             >
               {/* User Info */}
               <div className="flex items-center gap-3.5 min-w-0 flex-1">
