@@ -18,25 +18,28 @@ import { logoutUser, clearAuthCookie } from '@/lib/services/authService';
 
 interface AppNavigationSidebarProps {
   drawerOnly?: boolean;
+  defaultCollapsed?: boolean;
 }
 
-export function AppNavigationSidebar({ drawerOnly = false }: AppNavigationSidebarProps = {}) {
+export function AppNavigationSidebar({ drawerOnly = false, defaultCollapsed = false }: AppNavigationSidebarProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
   const { chats, isMobileSidebarOpen, setMobileSidebarOpen } = useChatStore();
 
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
-  // Ambil preferensi sidebar dari localStorage
+  // Ambil preferensi sidebar dari localStorage jika ada
   useEffect(() => {
     try {
       const saved = localStorage.getItem('dardcor_sidebar_collapsed');
       if (saved !== null) {
         setIsCollapsed(saved === 'true');
+      } else if (defaultCollapsed) {
+        setIsCollapsed(true);
       }
     } catch {}
-  }, []);
+  }, [defaultCollapsed]);
 
   const toggleSidebar = () => {
     setIsCollapsed((prev) => {
@@ -62,8 +65,8 @@ export function AppNavigationSidebar({ drawerOnly = false }: AppNavigationSideba
       {/* ================= DESKTOP NAVIGATION SIDEBAR (>= md) ================= */}
       {!drawerOnly && (
         <aside
-          className={`hidden md:flex flex-col bg-[#100c1e] border-r border-purple-500/20 transition-all duration-300 z-30 shrink-0 select-none ${
-            isCollapsed ? 'w-18 p-2.5 items-center' : 'w-56 lg:w-60 p-4'
+          className={`hidden md:flex flex-col bg-[#0d0a18] border-r border-purple-500/20 transition-all duration-300 z-30 shrink-0 select-none ${
+            isCollapsed ? 'w-[58px] p-2 items-center' : 'w-52 lg:w-56 p-3.5'
           }`}
         >
         {/* Brand Header & Toggle Button */}
