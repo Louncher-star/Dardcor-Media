@@ -403,3 +403,48 @@ DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_participants;
 EXCEPTION WHEN others THEN null;
 END $$;
+
+-- ============================================================================
+-- 13. TIKTOK MEDIA ACCOUNTS (KHUSUS AKUN MEDIA TIKTOK TERPISAH)
+-- ============================================================================
+-- Tabel ini khusus menyimpan akun TikTok hasil scraping data live pengguna
+-- Sistem autentikasi website Dardcor Media (profiles/chats) tetap berjalan terpisah
+CREATE TABLE IF NOT EXISTS public.tiktok_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    unique_id TEXT UNIQUE NOT NULL,             -- Username TikTok (e.g. 'fuji_an', 'raffi_nagita')
+    nickname TEXT NOT NULL,                     -- Nama Tampilan TikTok
+    avatar_url TEXT NOT NULL,                   -- Foto Profil Asli TikTok (Hasil Scrape Live)
+    signature TEXT DEFAULT '',                  -- Bio Profil TikTok
+    verified BOOLEAN DEFAULT false,             -- Status Centang Biru Resmi TikTok
+    follower_count BIGINT DEFAULT 0,            -- Jumlah Pengikut Real
+    following_count BIGINT DEFAULT 0,           -- Jumlah Mengikuti Real
+    heart_count BIGINT DEFAULT 0,               -- Total Suka / Hearts Real
+    video_count INT DEFAULT 0,                  -- Total Video Real
+    sec_uid TEXT,                               -- ID Enkripsi TikTok
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    last_active_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_unique_id ON public.tiktok_accounts(unique_id);
+CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_last_active ON public.tiktok_accounts(last_active_at DESC);
+
+-- RLS untuk tabel tiktok_accounts (memungkinkan pembacaan & penyimpanan akun scraping)
+ALTER TABLE public.tiktok_accounts ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    CREATE POLICY "Allow public read access on tiktok_accounts"
+        ON public.tiktok_accounts FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE POLICY "Allow public insert and update on tiktok_accounts"
+        ON public.tiktok_accounts FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_accounts;
+EXCEPTION WHEN others THEN null;
+END $$;
+

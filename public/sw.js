@@ -35,6 +35,11 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
+  // Jangan cache jika localhost atau development
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    return;
+  }
+
   // Jangan cache API atau Supabase requests
   if (url.pathname.startsWith('/api') || url.hostname.includes('supabase.co')) {
     return;

@@ -111,3 +111,64 @@ body {
   border-top: 0px solid transparent;
   border-bottom: 10px solid transparent;
 }
+
+/* ================= TIKTOK WEB CUSTOM ANIMATIONS ================= */
+@keyframes tt-heart-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0) rotate(-15deg);
+  }
+  30% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(1.3) rotate(0deg);
+  }
+  70% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1.1) rotate(10deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -120%) scale(0.8) rotate(15deg);
+  }
+}
+
+.animate-tt-heart {
+  animation: tt-heart-pop 0.9s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes tt-float-note {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.6) rotate(0deg);
+  }
+  40% {
+    opacity: 1;
+    transform: translate(-10px, -20px) scale(1) rotate(-20deg);
+  }
+  80% {
+    opacity: 0.8;
+    transform: translate(-20px, -45px) scale(0.9) rotate(20deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-30px, -70px) scale(0.5) rotate(-10deg);
+  }
+}
+
+.animate-tt-note {
+  animation: tt-float-note 2.4s ease-out infinite;
+}
+
+@keyframes tt-spin-disc {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-disc {
+  animation: tt-spin-disc 4s linear infinite;
+}
+

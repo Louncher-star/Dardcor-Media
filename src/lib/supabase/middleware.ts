@@ -44,14 +44,14 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
-  const isProtectedRoute = pathname.startsWith('/media') || pathname.startsWith('/chat');
+  const isProtectedRoute = pathname.startsWith('/chat');
   const isPublicApi = pathname.startsWith('/api/auth/callback') || pathname.startsWith('/api/tiktok');
 
   if (isPublicApi) {
     return supabaseResponse;
   }
 
-  // 1. Jika belum login dan mencoba membuka rute yang dilindungi (/media atau /chat), alihkan ke /login
+  // 1. Jika belum login dan mencoba membuka rute yang dilindungi (/chat), alihkan ke /login
   if (!isAuthenticated && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';

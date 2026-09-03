@@ -16,7 +16,11 @@ import { useChatStore } from '@/lib/store/useChatStore';
 import { Avatar } from '@/components/ui/Avatar';
 import { logoutUser, clearAuthCookie } from '@/lib/services/authService';
 
-export function AppNavigationSidebar() {
+interface AppNavigationSidebarProps {
+  drawerOnly?: boolean;
+}
+
+export function AppNavigationSidebar({ drawerOnly = false }: AppNavigationSidebarProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
@@ -56,11 +60,12 @@ export function AppNavigationSidebar() {
   return (
     <>
       {/* ================= DESKTOP NAVIGATION SIDEBAR (>= md) ================= */}
-      <aside
-        className={`hidden md:flex flex-col bg-[#100c1e] border-r border-purple-500/20 transition-all duration-300 z-30 shrink-0 select-none ${
-          isCollapsed ? 'w-18 p-2.5 items-center' : 'w-56 lg:w-60 p-4'
-        }`}
-      >
+      {!drawerOnly && (
+        <aside
+          className={`hidden md:flex flex-col bg-[#100c1e] border-r border-purple-500/20 transition-all duration-300 z-30 shrink-0 select-none ${
+            isCollapsed ? 'w-18 p-2.5 items-center' : 'w-56 lg:w-60 p-4'
+          }`}
+        >
         {/* Brand Header & Toggle Button */}
         <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} mb-6 w-full`}>
           {!isCollapsed && (
@@ -162,10 +167,11 @@ export function AppNavigationSidebar() {
           </button>
         </div>
       </aside>
+      )}
 
-      {/* ================= MOBILE NAVIGATION DRAWER (< md) ================= */}
+      {/* ================= NAVIGATION DRAWER ================= */}
       {isMobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex animate-in fade-in duration-200">
           {/* Backdrop overlay */}
           <div
             onClick={() => setMobileSidebarOpen(false)}
