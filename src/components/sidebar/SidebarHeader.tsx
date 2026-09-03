@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User } from 'lucide-react';
+import Link from 'next/link';
+import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
@@ -27,6 +28,8 @@ export function SidebarHeader({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const isGuest = !user || user.id === 'usr_current_01';
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -60,9 +63,16 @@ export function SidebarHeader({
         </div>
 
         <div className="flex flex-col">
-          <span className="font-bold text-sm bg-gradient-to-r from-purple-400 to-indigo-300 bg-clip-text text-transparent">
-            Dardcor Media
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm bg-gradient-to-r from-purple-400 to-indigo-300 bg-clip-text text-transparent">
+              Dardcor Media
+            </span>
+            {isGuest && (
+              <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Demo
+              </span>
+            )}
+          </div>
           <span className="text-[11px] text-[var(--wa-text-secondary)] truncate max-w-[130px]">
             {user?.display_name || `@${user?.username}`}
           </span>
@@ -70,7 +80,17 @@ export function SidebarHeader({
       </div>
 
       {/* Right: Action Icons */}
-      <div className="flex items-center gap-1 text-[var(--wa-text-secondary)]">
+      <div className="flex items-center gap-1.5 text-[var(--wa-text-secondary)]">
+        {isGuest && (
+          <Link
+            href="/login"
+            className="px-3 py-1 bg-gradient-to-r from-[#7c3aed] to-[#9333ea] hover:from-[#8b5cf6] hover:to-[#7c3aed] text-white text-xs font-medium rounded-full shadow-md shadow-purple-900/30 transition flex items-center gap-1"
+          >
+            <LogIn size={13} />
+            <span>Masuk</span>
+          </Link>
+        )}
+
         {/* Status / Stories */}
         <button
           onClick={onOpenStatus}
@@ -136,13 +156,23 @@ export function SidebarHeader({
 
               <hr className="my-1.5 border-[var(--wa-border)]" />
 
-              <button
-                onClick={handleLogout}
-                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-red-500/10 text-left text-red-400 transition"
-              >
-                <LogOut size={16} />
-                <span>Keluar Akun</span>
-              </button>
+              {isGuest ? (
+                <Link
+                  href="/login"
+                  className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-purple-500/10 text-left text-[#a78bfa] font-medium transition"
+                >
+                  <LogIn size={16} />
+                  <span>Masuk / Daftar Akun</span>
+                </Link>
+              ) : (
+                <button
+                  onClick={handleLogout}
+                  className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-red-500/10 text-left text-red-400 transition"
+                >
+                  <LogOut size={16} />
+                  <span>Keluar Akun</span>
+                </button>
+              )}
             </div>
           )}
         </div>
