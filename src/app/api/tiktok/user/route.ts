@@ -239,59 +239,11 @@ async function enrichUserVideos(profile: TikTokScrapedUser): Promise<TikTokScrap
     } catch {}
   }
 
-  // Jika akun memiliki video_count di profil TikTok (misal dardcor punya 10 video),
-  // pastikan tab "Video Saya" menampilkan video real tersebut dengan playback aktif
-  const targetCount = Math.max(profile.video_count || 0, userVideos.length);
-  const titlesList = [
-    `Dardcor Media Official Update #discord #dardcor`,
-    `Join our official Discord community! Link di bio: discord.gg/Mr4nvQQDj`,
-    `Fullstack Development Dardcor Platform 2026 #developer #coding`,
-    `Next-level realtime chat & media player showcase #tech`,
-    `Dardcor Media gameplay stream highlight #gaming`,
-    `Setup workspace & streaming rig Dardcor #setup`,
-    `Behind the scenes Dardcor Media infrastructure #code`,
-    `Community night & voice room highlight Discord Dardcor`,
-    `TikTok Scraper & media player integration #feature`,
-    `Thank you for 500+ followers! Link di bio #milestone`,
-  ];
-
-  if (userVideos.length < targetCount && feedVideos.length > 0) {
-    const needed = targetCount - userVideos.length;
-    for (let i = 0; i < needed && i < feedVideos.length; i++) {
-      const baseVid = feedVideos[i % feedVideos.length];
-      const customTitle = titlesList[i % titlesList.length] || `${profile.nickname} Content #${i + 1}`;
-      userVideos.push({
-        id: `tt_vid_${profile.unique_id}_${i + 1}`,
-        title: customTitle,
-        video_url: baseVid.video_url,
-        cover_url: baseVid.cover_url,
-        duration: baseVid.duration || 15,
-        play_count: Math.floor(Math.random() * 25000) + 5000,
-        digg_count: Math.floor(Math.random() * 3000) + 800,
-        comment_count: Math.floor(Math.random() * 150) + 20,
-        share_count: Math.floor(Math.random() * 50) + 10,
-        create_time: Math.floor(Date.now() / 1000) - i * 86400 * 3,
-        author: {
-          id: profile.id || `tt_${profile.unique_id}`,
-          unique_id: profile.unique_id,
-          nickname: profile.nickname,
-          avatar: profile.avatar_url,
-        },
-      });
-    }
-  }
-
-  // 2. Video Disukai: Ambil dari feed real yang disukai oleh user
-  const likedVideos = feedVideos.slice(0, Math.min(feedVideos.length, Math.max(12, profile.digg_count || 12)));
-
-  // 3. Video Favorit: Koleksi video favorit tersimpan dari feed real
-  const favoriteVideos = feedVideos.slice(3, Math.min(feedVideos.length, 15));
-
   return {
     ...profile,
     videos: userVideos,
-    liked_videos: likedVideos,
-    favorite_videos: favoriteVideos,
+    liked_videos: [],
+    favorite_videos: [],
   };
 }
 

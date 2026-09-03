@@ -246,19 +246,43 @@ export function TikTokProfileView({
                   </div>
                 ))
               ) : (
-                <div className="col-span-3 py-12 text-center text-white/40 text-xs space-y-3">
-                  <p>Belum ada video pada kategori ini.</p>
-                  {activeTab === 'uploaded' && onOpenUpload && (
-                    <button
-                      onClick={() => {
-                        onClose();
-                        onOpenUpload();
-                      }}
-                      className="px-4 py-2 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
-                    >
-                      <Upload size={14} />
-                      <span>Unggah Video Sekarang</span>
-                    </button>
+                <div className="col-span-3 py-14 flex flex-col items-center justify-center text-center space-y-3">
+                  {activeTab === 'uploaded' ? (
+                    <>
+                      <Film size={44} className="text-white/20" />
+                      <p className="text-sm font-bold text-white/80">Belum ada video yang diunggah</p>
+                      <p className="text-xs text-white/40 max-w-xs">
+                        Bagikan momen dan video kreatif Anda di Dardcor Media.
+                      </p>
+                      {onOpenUpload && (
+                        <button
+                          onClick={() => {
+                            onClose();
+                            onOpenUpload();
+                          }}
+                          className="mt-2 px-5 py-2.5 rounded-xl bg-[#FE2C55] hover:bg-[#e02449] text-white text-xs font-bold inline-flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95 transition"
+                        >
+                          <Upload size={15} />
+                          <span>Unggah Video Pertama</span>
+                        </button>
+                      )}
+                    </>
+                  ) : activeTab === 'liked' ? (
+                    <>
+                      <Heart size={44} className="text-white/20" />
+                      <p className="text-sm font-bold text-white/80">Belum ada video yang disukai</p>
+                      <p className="text-xs text-white/40 max-w-xs">
+                        Video yang Anda sukai dengan menekan tanda hati (❤️) akan tersimpan di sini.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Bookmark size={44} className="text-white/20" />
+                      <p className="text-sm font-bold text-white/80">Belum ada video favorit</p>
+                      <p className="text-xs text-white/40 max-w-xs">
+                        Video yang Anda bookmark (🔖) akan tersimpan rapi di sini.
+                      </p>
+                    </>
                   )}
                 </div>
               )}

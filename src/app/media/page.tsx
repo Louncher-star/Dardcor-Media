@@ -130,6 +130,7 @@ export default function TikTokMediaPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(15);
   const activeVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mobileFeedContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Floating hearts on double tap
   const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number }[]>([]);
@@ -188,19 +189,45 @@ export default function TikTokMediaPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 2. Fetch live TikTok feed
+  // Pool region TikTok untuk variasi tak terbatas (Infinite Feed)
+  const REGION_POOL = ['ID', 'GLOBAL', 'US', 'JP', 'MY', 'SG', 'KR', 'TH', 'VN', 'PH', 'BR', 'GB'];
+  const [regionPoolIndex, setRegionPoolIndex] = useState(0);
+  const seenVideoIdsRef = useRef<Set<string>>(new Set());
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // 2. Fetch live TikTok feed (Dukungan Fresh Random Feed & Deduplikasi)
   const loadFeed = useCallback(
-    async (region: string, query: string) => {
+    async (region: string, query: string, isRefresh = false) => {
       setIsLoadingFeed(true);
       try {
-        const url = `/api/tiktok?region=${encodeURIComponent(region)}&count=25${
+        let targetRegion = region;
+        if (isRefresh) {
+          const nextIdx = (regionPoolIndex + 1) % REGION_POOL.length;
+          setRegionPoolIndex(nextIdx);
+          targetRegion = REGION_POOL[nextIdx];
+        }
+
+        const excludeParam = Array.from(seenVideoIdsRef.current).slice(-100).join(',');
+        const url = `/api/tiktok?region=${encodeURIComponent(targetRegion)}&count=25${
           query ? `&keywords=${encodeURIComponent(query)}` : ''
-        }`;
+        }${excludeParam ? `&exclude_ids=${encodeURIComponent(excludeParam)}` : ''}`;
+
         const res = await fetch(url);
         const data = await res.json();
         if (data && data.success && Array.isArray(data.data) && data.data.length > 0) {
-          setVideos(data.data);
+          const freshVideos = isRefresh
+            ? data.data.filter((v: TikTokVideoItem) => !seenVideoIdsRef.current.has(v.id))
+            : data.data;
+
+          const finalList = freshVideos.length > 0 ? freshVideos : data.data;
+          finalList.forEach((v: TikTokVideoItem) => seenVideoIdsRef.current.add(v.id));
+
+          setVideos(finalList);
           setActiveIndex(0);
+
+          if (mobileFeedContainerRef.current) {
+            mobileFeedContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+          }
         } else {
           setVideos([]);
         }
@@ -210,8 +237,39 @@ export default function TikTokMediaPage() {
         setIsLoadingFeed(false);
       }
     },
-    []
+    [regionPoolIndex]
   );
+
+  // 3. Load More Videos secara otomatis (Unlimited Scroll Tanpa Batas)
+  const loadMoreVideos = useCallback(async () => {
+    if (isLoadingMore || isLoadingFeed) return;
+    setIsLoadingMore(true);
+
+    try {
+      const nextIdx = (regionPoolIndex + 1) % REGION_POOL.length;
+      setRegionPoolIndex(nextIdx);
+      const nextReg = REGION_POOL[nextIdx];
+
+      const excludeParam = Array.from(seenVideoIdsRef.current).slice(-150).join(',');
+      const url = `/api/tiktok?region=${encodeURIComponent(nextReg)}&count=20${
+        submittedQuery ? `&keywords=${encodeURIComponent(submittedQuery)}` : ''
+      }&exclude_ids=${encodeURIComponent(excludeParam)}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        const fresh = data.data.filter((v: TikTokVideoItem) => !seenVideoIdsRef.current.has(v.id));
+        const toAdd = fresh.length > 0 ? fresh : data.data;
+        toAdd.forEach((v: TikTokVideoItem) => seenVideoIdsRef.current.add(v.id));
+
+        setVideos((prev) => [...prev, ...toAdd]);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat video lanjutan:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, isLoadingFeed, regionPoolIndex, submittedQuery]);
 
   useEffect(() => {
     loadFeed(selectedRegion, submittedQuery);
@@ -232,6 +290,34 @@ export default function TikTokMediaPage() {
 
   const currentVideo: TikTokVideoItem | undefined = displayedVideos[activeIndex];
 
+  // Sinkronisasi posisi scroll container mobile saat activeIndex berubah
+  useEffect(() => {
+    if (mobileFeedContainerRef.current) {
+      const targetY = activeIndex * mobileFeedContainerRef.current.clientHeight;
+      if (Math.abs(mobileFeedContainerRef.current.scrollTop - targetY) > 20) {
+        mobileFeedContainerRef.current.scrollTo({
+          top: targetY,
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [activeIndex]);
+
+  // Handler scroll native mobile dengan CSS Scroll Snap (60/120fps fluid, nol jeda)
+  const handleMobileScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (!el || el.clientHeight === 0) return;
+    const newIdx = Math.round(el.scrollTop / el.clientHeight);
+    if (newIdx !== activeIndex && newIdx >= 0 && newIdx < displayedVideos.length) {
+      setActiveIndex(newIdx);
+      setIsPlaying(true);
+    }
+    // Pre-fetch video berikutnya saat mendekati akhir daftar
+    if (newIdx >= displayedVideos.length - 3) {
+      loadMoreVideos();
+    }
+  };
+
   // Video progress time update
   const handleTimeUpdate = () => {
     if (activeVideoRef.current) {
@@ -249,6 +335,9 @@ export default function TikTokMediaPage() {
       setCurrentTime(0);
       setIsPlaying(true);
     }
+    if (activeIndex >= displayedVideos.length - 3) {
+      loadMoreVideos();
+    }
   };
 
   const goToPrevVideo = () => {
@@ -257,27 +346,6 @@ export default function TikTokMediaPage() {
       setCurrentTime(0);
       setIsPlaying(true);
     }
-  };
-
-  // Touch swipe gesture support for mobile (Swipe Up = Next, Swipe Down = Prev)
-  const touchStartY = useRef<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartY.current === null) return;
-    const touchEndY = e.changedTouches[0].clientY;
-    const diff = touchStartY.current - touchEndY;
-    if (diff > 45) {
-      // Swiped UP -> Next video
-      goToNextVideo();
-    } else if (diff < -45) {
-      // Swiped DOWN -> Prev video
-      goToPrevVideo();
-    }
-    touchStartY.current = null;
   };
 
   // Keyboard navigation
@@ -792,8 +860,8 @@ export default function TikTokMediaPage() {
 
         {/* ================= CENTER MAIN VIEW ================= */}
         <main className="flex-1 h-full flex flex-col items-center justify-center relative bg-black overflow-hidden">
-          {/* Mobile Top Header (< md): Menu Hamburger + Tabs + Search (Exact Match to Gambar 1) */}
-          <div className="md:hidden absolute top-0 left-0 right-0 z-40 h-14 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 flex items-center justify-between pointer-events-auto">
+          {/* Mobile Top Header (< md): Menu Hamburger + Tabs + Search (Selalu Fixed di Atas, Tidak Pernah Hilang) */}
+          <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-gradient-to-b from-black/95 via-black/60 to-transparent px-4 flex items-center justify-between pointer-events-auto pt-[env(safe-area-inset-top,0px)]">
             <button
               onClick={() => setMobileSidebarOpen(true)}
               className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/90 hover:text-white"
@@ -944,66 +1012,323 @@ export default function TikTokMediaPage() {
               </button>
             </div>
           ) : (
-            /* ================= CONDITION 4: MAIN VIDEO PLAYER (Persis Gambar 1 di Mobile) ================= */
-            <div
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
-              className="relative flex items-center justify-center w-full h-full p-0 md:p-4 bg-black overflow-hidden"
-            >
-              {/* VIDEO FRAME BOX (Fullscreen di Mobile, Aspect Card di Desktop) */}
+            /* ================= CONDITION 4: MAIN VIDEO PLAYER ================= */
+            <>
+              {/* ================= 4A. MOBILE VIEW (< md): 60/120fps CSS Scroll Snap Container (Fluid, Nol Jeda) ================= */}
               <div
-                onDoubleClick={handleVideoDoubleClick}
-                className="relative w-full h-full md:w-auto md:h-[86vh] md:max-h-[820px] md:aspect-[9/16] bg-black md:rounded-2xl overflow-hidden md:shadow-2xl md:border md:border-white/10 select-none flex items-center justify-center group"
+                ref={mobileFeedContainerRef}
+                onScroll={handleMobileScroll}
+                className="md:hidden w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar relative select-none bg-black"
+                style={{ scrollSnapType: 'y mandatory', WebkitOverflowScrolling: 'touch' }}
               >
-                {/* Video Element */}
-                <video
-                  ref={activeVideoRef}
-                  key={currentVideo.id}
-                  src={currentVideo.video_url}
-                  poster={currentVideo.cover_url}
-                  className="w-full h-full object-cover cursor-pointer"
-                  loop
-                  playsInline
-                  autoPlay
-                  muted={isMuted}
-                  onTimeUpdate={handleTimeUpdate}
-                  onClick={togglePlay}
-                />
+                {displayedVideos.map((vid, idx) => {
+                  const isCurrent = idx === activeIndex;
+                  const isNearby = Math.abs(idx - activeIndex) <= 1;
 
-                {/* Floating Hearts on Double Tap */}
-                {floatingHearts.map((heart) => (
-                  <div
-                    key={heart.id}
-                    style={{ left: heart.x, top: heart.y }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 animate-bounce"
-                  >
-                    <Heart size={70} fill="#FE2C55" color="#FE2C55" />
-                  </div>
-                ))}
+                  return (
+                    <div
+                      key={vid.id}
+                      data-index={idx}
+                      className="w-full h-[100dvh] snap-start snap-always shrink-0 relative flex items-center justify-center bg-black overflow-hidden"
+                    >
+                      {/* Video or Image Poster for optimal performance */}
+                      {isNearby ? (
+                        <video
+                          ref={isCurrent ? activeVideoRef : null}
+                          src={vid.video_url}
+                          poster={vid.cover_url}
+                          className="w-full h-full object-cover cursor-pointer"
+                          loop
+                          playsInline
+                          autoPlay={isCurrent}
+                          muted={isMuted}
+                          onTimeUpdate={isCurrent ? handleTimeUpdate : undefined}
+                          onClick={togglePlay}
+                        />
+                      ) : (
+                        <img
+                          src={vid.cover_url}
+                          alt={vid.title}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
 
-                {/* Sound Toggle Button (Top-Left) */}
-                <button
-                  onClick={() => setIsMuted((prev) => !prev)}
-                  className="absolute top-16 md:top-4 left-4 z-30 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 hover:text-white transition shadow-lg"
-                  title={isMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
+                      {/* Floating Hearts on Double Tap */}
+                      {isCurrent &&
+                        floatingHearts.map((heart) => (
+                          <div
+                            key={heart.id}
+                            style={{ left: heart.x, top: heart.y }}
+                            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 animate-bounce"
+                          >
+                            <Heart size={70} fill="#FE2C55" color="#FE2C55" />
+                          </div>
+                        ))}
+
+                      {/* Sound Toggle (Top-Left) */}
+                      <button
+                        onClick={() => setIsMuted((prev) => !prev)}
+                        className="absolute top-16 left-4 z-30 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 hover:text-white transition shadow-lg"
+                        title={isMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
+                      >
+                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                      </button>
+
+                      {/* Center Play Indicator when paused */}
+                      {isCurrent && !isPlaying && (
+                        <div
+                          onClick={togglePlay}
+                          className="absolute inset-0 bg-black/35 flex items-center justify-center cursor-pointer z-20"
+                        >
+                          <div className="w-16 h-16 rounded-full bg-black/65 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl">
+                            <Play size={28} fill="white" className="translate-x-0.5" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Floating Action Overlay on the Right (Persis Gambar 1) */}
+                      <div className="absolute right-2.5 bottom-20 z-30 flex flex-col items-center gap-3.5 pointer-events-auto">
+                        {/* Creator Avatar with Red '+' badge */}
+                        <div className="relative mb-1">
+                          <img
+                            src={vid.author.avatar}
+                            alt={vid.author.nickname}
+                            referrerPolicy="no-referrer"
+                            onClick={() => handleOpenCreator(vid.author)}
+                            onError={(e) => {
+                              e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                                vid.author.unique_id
+                              )}`;
+                            }}
+                            className="w-11 h-11 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg active:scale-95 transition"
+                          />
+                          {!followingCreatorIds[vid.author.id] && (
+                            <button
+                              onClick={() => handleToggleFollow(vid.author.id)}
+                              className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#FE2C55] text-white flex items-center justify-center font-black text-xs shadow-md"
+                              title="Ikuti Kreator"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Like Button */}
+                        <button
+                          onClick={() => handleToggleLike(vid.id)}
+                          className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                        >
+                          <Heart
+                            size={28}
+                            fill={likedVideoIds[vid.id] ? '#FE2C55' : 'rgba(255,255,255,0.9)'}
+                            color={likedVideoIds[vid.id] ? '#FE2C55' : 'white'}
+                            className="drop-shadow-lg"
+                          />
+                          <span className="text-[11px] font-bold text-white drop-shadow-md">
+                            {formatCount(vid.digg_count)}
+                          </span>
+                        </button>
+
+                        {/* Comment Button */}
+                        <button
+                          onClick={() => handleOpenComments(vid)}
+                          className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                        >
+                          <MessageCircle size={28} className="text-white drop-shadow-lg fill-white/10" />
+                          <span className="text-[11px] font-bold text-white drop-shadow-md">
+                            {formatCount(vid.comment_count)}
+                          </span>
+                        </button>
+
+                        {/* Bookmark Button */}
+                        <button
+                          onClick={() => handleToggleFavorite(vid.id)}
+                          className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                        >
+                          <Bookmark
+                            size={28}
+                            fill={favoritedVideoIds[vid.id] ? '#f59e0b' : 'rgba(255,255,255,0.1)'}
+                            color={favoritedVideoIds[vid.id] ? '#f59e0b' : 'white'}
+                            className="drop-shadow-lg"
+                          />
+                          <span className="text-[11px] font-bold text-white drop-shadow-md">
+                            {formatCount(vid.share_count ? vid.share_count * 2 : 594)}
+                          </span>
+                        </button>
+
+                        {/* Share Button */}
+                        <button
+                          onClick={() => handleShareVideo(vid)}
+                          className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                        >
+                          <Share2 size={28} className="text-white drop-shadow-lg" />
+                          <span className="text-[11px] font-bold text-white drop-shadow-md">
+                            {formatCount(vid.share_count || 113)}
+                          </span>
+                        </button>
+
+                        {/* Spinning Vinyl Music Disc */}
+                        <div className="w-10 h-10 rounded-full bg-black/80 border-2 border-[#333333] overflow-hidden flex items-center justify-center animate-[spin_4s_linear_infinite] shadow-xl mt-1">
+                          <img
+                            src={vid.author.avatar}
+                            alt="Audio"
+                            referrerPolicy="no-referrer"
+                            className="w-5 h-5 rounded-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=disc`;
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Bottom Details Overlay (Caption, Author, Audio) */}
+                      <div className="absolute left-0 right-0 bottom-0 z-20 p-4 pb-20 pt-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white space-y-1.5 pointer-events-auto pr-16">
+                        <div
+                          onClick={() => handleOpenCreator(vid.author)}
+                          className="font-black text-sm hover:underline cursor-pointer drop-shadow-md flex items-center gap-1.5"
+                        >
+                          <span>{vid.author.nickname}</span>
+                        </div>
+
+                        <p className="text-xs text-white/95 line-clamp-2 leading-relaxed drop-shadow-md font-medium">
+                          {vid.title}
+                        </p>
+
+                        <div className="flex items-center gap-1 text-[11px] text-white/60 hover:underline cursor-pointer drop-shadow-sm">
+                          <span>Lihat terjemahan</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-white/90 font-medium pt-0.5 drop-shadow-md">
+                          <Music size={12} className="flex-shrink-0 animate-pulse text-[#FE2C55]" />
+                          <span className="truncate">
+                            {vid.music_info?.title || 'Suara asli - ' + vid.author.nickname}
+                          </span>
+                        </div>
+
+                        {/* Progress Bar (Hanya video aktif) */}
+                        {isCurrent && (
+                          <div
+                            onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const clickX = e.clientX - rect.left;
+                              const newTime = (clickX / rect.width) * duration;
+                              if (activeVideoRef.current) {
+                                activeVideoRef.current.currentTime = newTime;
+                              }
+                            }}
+                            className="w-full h-1 bg-white/20 hover:h-2 rounded-full cursor-pointer overflow-hidden transition-all pt-0.5"
+                          >
+                            <div
+                              style={{ width: `${progressPercent}%` }}
+                              className="h-full bg-[#FE2C55] rounded-full transition-all duration-100"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ================= 4B. DESKTOP VIEW (md:): Centered Card Player with Controls ================= */}
+              <div className="hidden md:flex items-center justify-center w-full h-full p-4 bg-black overflow-hidden relative">
+                {/* VIDEO FRAME BOX */}
+                <div
+                  onDoubleClick={handleVideoDoubleClick}
+                  className="relative h-[86vh] max-h-[820px] aspect-[9/16] bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10 select-none flex items-center justify-center group"
                 >
-                  {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                </button>
-
-                {/* Center Play Indicator when paused */}
-                {!isPlaying && (
-                  <div
+                  <video
+                    ref={activeVideoRef}
+                    key={currentVideo.id}
+                    src={currentVideo.video_url}
+                    poster={currentVideo.cover_url}
+                    className="w-full h-full object-cover cursor-pointer"
+                    loop
+                    playsInline
+                    autoPlay
+                    muted={isMuted}
+                    onTimeUpdate={handleTimeUpdate}
                     onClick={togglePlay}
-                    className="absolute inset-0 bg-black/35 flex items-center justify-center cursor-pointer z-20"
+                  />
+
+                  {/* Floating Hearts on Double Tap */}
+                  {floatingHearts.map((heart) => (
+                    <div
+                      key={heart.id}
+                      style={{ left: heart.x, top: heart.y }}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 animate-bounce"
+                    >
+                      <Heart size={70} fill="#FE2C55" color="#FE2C55" />
+                    </div>
+                  ))}
+
+                  {/* Sound Toggle Button */}
+                  <button
+                    onClick={() => setIsMuted((prev) => !prev)}
+                    className="absolute top-4 left-4 z-20 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 hover:text-white transition shadow-lg"
+                    title={isMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
                   >
-                    <div className="w-16 h-16 rounded-full bg-black/65 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl">
-                      <Play size={28} fill="white" className="translate-x-0.5" />
+                    {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                  </button>
+
+                  {/* Center Play Indicator when paused */}
+                  {!isPlaying && (
+                    <div
+                      onClick={togglePlay}
+                      className="absolute inset-0 bg-black/35 flex items-center justify-center cursor-pointer z-20"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-black/65 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl">
+                        <Play size={28} fill="white" className="translate-x-0.5" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bottom Details Overlay */}
+                  <div className="absolute left-0 right-0 bottom-0 z-20 p-4 pt-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white space-y-2 pointer-events-auto">
+                    <div
+                      onClick={() => handleOpenCreator(currentVideo.author)}
+                      className="font-bold text-sm hover:underline cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>—{currentVideo.author.nickname}</span>
+                    </div>
+
+                    <p className="text-xs text-white/90 line-clamp-2 leading-relaxed">
+                      {currentVideo.title}
+                    </p>
+
+                    <div className="flex items-center gap-1 text-[11px] text-white/50 hover:underline cursor-pointer">
+                      <span>Lihat terjemahan</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[11px] text-white/80 font-medium pt-1">
+                      <Music size={12} className="flex-shrink-0 animate-pulse" />
+                      <span className="truncate">
+                        {currentVideo.music_info?.title || 'Suara asli - ' + currentVideo.author.nickname}
+                      </span>
+                    </div>
+
+                    {/* Red Progress Bar */}
+                    <div
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const newTime = (clickX / rect.width) * duration;
+                        if (activeVideoRef.current) {
+                          activeVideoRef.current.currentTime = newTime;
+                        }
+                      }}
+                      className="w-full h-1 bg-white/20 hover:h-2 rounded-full cursor-pointer overflow-hidden transition-all pt-0.5"
+                    >
+                      <div
+                        style={{ width: `${progressPercent}%` }}
+                        className="h-full bg-[#FE2C55] rounded-full transition-all duration-100"
+                      />
                     </div>
                   </div>
-                )}
+                </div>
 
-                {/* MOBILE ONLY: RIGHT VERTICAL FLOATING ACTION COLUMN (Exact Match to Gambar 1) */}
-                <div className="md:hidden absolute right-2.5 bottom-20 z-30 flex flex-col items-center gap-3.5 pointer-events-auto">
+                {/* DESKTOP ONLY: RIGHT VERTICAL FLOATING ACTION COLUMN */}
+                <div className="flex flex-col items-center gap-4 ml-4 sm:ml-5 z-20">
                   {/* Creator Avatar with Red '+' badge */}
                   <div className="relative mb-1">
                     <img
@@ -1016,12 +1341,12 @@ export default function TikTokMediaPage() {
                           currentVideo.author.unique_id
                         )}`;
                       }}
-                      className="w-11 h-11 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg active:scale-95 transition"
+                      className="w-12 h-12 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg hover:scale-105 transition"
                     />
                     {!followingCreatorIds[currentVideo.author.id] && (
                       <button
                         onClick={() => handleToggleFollow(currentVideo.author.id)}
-                        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#FE2C55] text-white flex items-center justify-center font-black text-xs shadow-md"
+                        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#FE2C55] text-white flex items-center justify-center font-bold text-xs shadow-md hover:scale-110 transition"
                         title="Ikuti Kreator"
                       >
                         +
@@ -1029,67 +1354,83 @@ export default function TikTokMediaPage() {
                     )}
                   </div>
 
-                  {/* Like Button */}
+                  {/* Like Button ❤️ */}
                   <button
                     onClick={() => handleToggleLike(currentVideo.id)}
-                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                    className="flex flex-col items-center gap-1 text-white group"
                   >
-                    <Heart
-                      size={28}
-                      fill={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'rgba(255,255,255,0.9)'}
-                      color={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'white'}
-                      className="drop-shadow-lg"
-                    />
-                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                    <div
+                      className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition ${
+                        likedVideoIds[currentVideo.id]
+                          ? 'bg-[#FE2C55]/25 text-[#FE2C55]'
+                          : 'bg-[#222222] hover:bg-[#333333] text-white'
+                      }`}
+                    >
+                      <Heart
+                        size={22}
+                        fill={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'none'}
+                      />
+                    </div>
+                    <span className="text-[11px] font-bold text-white/80">
                       {formatCount(currentVideo.digg_count)}
                     </span>
                   </button>
 
-                  {/* Comment Button */}
+                  {/* Comment Button 💬 */}
                   <button
                     onClick={() => handleOpenComments(currentVideo)}
-                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                    className="flex flex-col items-center gap-1 text-white group"
                   >
-                    <MessageCircle size={28} className="text-white drop-shadow-lg fill-white/10" />
-                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                    <div className="w-11 h-11 rounded-full bg-[#222222] hover:bg-[#333333] flex items-center justify-center text-white transition">
+                      <MessageCircle size={22} />
+                    </div>
+                    <span className="text-[11px] font-bold text-white/80">
                       {formatCount(currentVideo.comment_count)}
                     </span>
                   </button>
 
-                  {/* Bookmark Button */}
+                  {/* Bookmark Button 🔖 */}
                   <button
                     onClick={() => handleToggleFavorite(currentVideo.id)}
-                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                    className="flex flex-col items-center gap-1 text-white group"
                   >
-                    <Bookmark
-                      size={28}
-                      fill={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'rgba(255,255,255,0.1)'}
-                      color={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'white'}
-                      className="drop-shadow-lg"
-                    />
-                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                    <div
+                      className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition ${
+                        favoritedVideoIds[currentVideo.id]
+                          ? 'bg-amber-500/25 text-amber-400'
+                          : 'bg-[#222222] hover:bg-[#333333] text-white'
+                      }`}
+                    >
+                      <Bookmark
+                        size={22}
+                        fill={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'none'}
+                      />
+                    </div>
+                    <span className="text-[11px] font-bold text-white/80">
                       {formatCount(currentVideo.share_count ? currentVideo.share_count * 2 : 594)}
                     </span>
                   </button>
 
-                  {/* Share Button */}
+                  {/* Share Button ↗️ */}
                   <button
                     onClick={() => handleShareVideo(currentVideo)}
-                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                    className="flex flex-col items-center gap-1 text-white group"
                   >
-                    <Share2 size={28} className="text-white drop-shadow-lg" />
-                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                    <div className="w-11 h-11 rounded-full bg-[#222222] hover:bg-[#333333] flex items-center justify-center text-white transition">
+                      <Share2 size={22} />
+                    </div>
+                    <span className="text-[11px] font-bold text-white/80">
                       {formatCount(currentVideo.share_count || 113)}
                     </span>
                   </button>
 
-                  {/* Spinning Vinyl Music Disc (Gambar 1) */}
-                  <div className="w-10 h-10 rounded-full bg-black/80 border-2 border-[#333333] overflow-hidden flex items-center justify-center animate-[spin_4s_linear_infinite] shadow-xl mt-1">
+                  {/* Spinning Music Vinyl Disc */}
+                  <div className="w-10 h-10 rounded-full bg-black border-2 border-[#222222] overflow-hidden flex items-center justify-center animate-spin duration-[4000ms] shadow-lg">
                     <img
                       src={currentVideo.author.avatar}
-                      alt="Audio"
+                      alt="Album"
                       referrerPolicy="no-referrer"
-                      className="w-5 h-5 rounded-full object-cover"
+                      className="w-6 h-6 rounded-full object-cover"
                       onError={(e) => {
                         e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=disc`;
                       }}
@@ -1097,184 +1438,27 @@ export default function TikTokMediaPage() {
                   </div>
                 </div>
 
-                {/* Bottom Details Overlay (Caption, Author, Audio) */}
-                <div className="absolute left-0 right-0 bottom-0 z-20 p-4 pb-20 md:pb-4 pt-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white space-y-1.5 pointer-events-auto pr-16 md:pr-4">
-                  {/* Author Name */}
-                  <div
-                    onClick={() => handleOpenCreator(currentVideo.author)}
-                    className="font-black text-sm sm:text-base hover:underline cursor-pointer drop-shadow-md flex items-center gap-1.5"
+                {/* UP / DOWN NAVIGATION CHEVRONS (Desktop) */}
+                <div className="hidden lg:flex flex-col items-center gap-2.5 ml-4 z-20">
+                  <button
+                    onClick={goToPrevVideo}
+                    disabled={activeIndex === 0}
+                    className="w-10 h-10 rounded-full bg-[#222222] hover:bg-[#333333] disabled:opacity-30 disabled:hover:bg-[#222222] text-white flex items-center justify-center transition shadow-lg"
+                    title="Video Sebelumnya (Arrow Up)"
                   >
-                    <span>{currentVideo.author.nickname}</span>
-                  </div>
-
-                  {/* Caption & Hashtags */}
-                  <p className="text-xs text-white/95 line-clamp-2 leading-relaxed drop-shadow-md font-medium">
-                    {currentVideo.title}
-                  </p>
-
-                  <div className="flex items-center gap-1 text-[11px] text-white/60 hover:underline cursor-pointer drop-shadow-sm">
-                    <span>Lihat terjemahan</span>
-                  </div>
-
-                  {/* Audio Music Track */}
-                  <div className="flex items-center gap-2 text-[11px] text-white/90 font-medium pt-0.5 drop-shadow-md">
-                    <Music size={12} className="flex-shrink-0 animate-pulse text-[#FE2C55]" />
-                    <span className="truncate">
-                      {currentVideo.music_info?.title || 'Suara asli - ' + currentVideo.author.nickname}
-                    </span>
-                  </div>
-
-                  {/* Red Progress Bar */}
-                  <div
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const clickX = e.clientX - rect.left;
-                      const newTime = (clickX / rect.width) * duration;
-                      if (activeVideoRef.current) {
-                        activeVideoRef.current.currentTime = newTime;
-                      }
-                    }}
-                    className="w-full h-1 bg-white/20 hover:h-2 rounded-full cursor-pointer overflow-hidden transition-all pt-0.5"
+                    <ChevronUp size={22} />
+                  </button>
+                  <button
+                    onClick={goToNextVideo}
+                    disabled={activeIndex === displayedVideos.length - 1}
+                    className="w-10 h-10 rounded-full bg-[#222222] hover:bg-[#333333] disabled:opacity-30 disabled:hover:bg-[#222222] text-white flex items-center justify-center transition shadow-lg"
+                    title="Video Selanjutnya (Arrow Down)"
                   >
-                    <div
-                      style={{ width: `${progressPercent}%` }}
-                      className="h-full bg-[#FE2C55] rounded-full transition-all duration-100"
-                    />
-                  </div>
+                    <ChevronDown size={22} />
+                  </button>
                 </div>
               </div>
-
-              {/* DESKTOP ONLY: RIGHT VERTICAL FLOATING ACTION COLUMN */}
-              <div className="hidden md:flex flex-col items-center gap-4 ml-4 sm:ml-5 z-20">
-                {/* Creator Avatar with Red '+' badge */}
-                <div className="relative mb-1">
-                  <img
-                    src={currentVideo.author.avatar}
-                    alt={currentVideo.author.nickname}
-                    referrerPolicy="no-referrer"
-                    onClick={() => handleOpenCreator(currentVideo.author)}
-                    onError={(e) => {
-                      e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
-                        currentVideo.author.unique_id
-                      )}`;
-                    }}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg hover:scale-105 transition"
-                  />
-                  {!followingCreatorIds[currentVideo.author.id] && (
-                    <button
-                      onClick={() => handleToggleFollow(currentVideo.author.id)}
-                      className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#FE2C55] text-white flex items-center justify-center font-bold text-xs shadow-md hover:scale-110 transition"
-                      title="Ikuti Kreator"
-                    >
-                      +
-                    </button>
-                  )}
-                </div>
-
-                {/* Like Button ❤️ */}
-                <button
-                  onClick={() => handleToggleLike(currentVideo.id)}
-                  className="flex flex-col items-center gap-1 text-white group"
-                >
-                  <div
-                    className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition ${
-                      likedVideoIds[currentVideo.id]
-                        ? 'bg-[#FE2C55]/25 text-[#FE2C55]'
-                        : 'bg-[#222222] hover:bg-[#333333] text-white'
-                    }`}
-                  >
-                    <Heart
-                      size={22}
-                      fill={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'none'}
-                    />
-                  </div>
-                  <span className="text-[11px] font-bold text-white/80">
-                    {formatCount(currentVideo.digg_count)}
-                  </span>
-                </button>
-
-                {/* Comment Button 💬 */}
-                <button
-                  onClick={() => handleOpenComments(currentVideo)}
-                  className="flex flex-col items-center gap-1 text-white group"
-                >
-                  <div className="w-11 h-11 rounded-full bg-[#222222] hover:bg-[#333333] flex items-center justify-center text-white transition">
-                    <MessageCircle size={22} />
-                  </div>
-                  <span className="text-[11px] font-bold text-white/80">
-                    {formatCount(currentVideo.comment_count)}
-                  </span>
-                </button>
-
-                {/* Bookmark Button 🔖 */}
-                <button
-                  onClick={() => handleToggleFavorite(currentVideo.id)}
-                  className="flex flex-col items-center gap-1 text-white group"
-                >
-                  <div
-                    className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition ${
-                      favoritedVideoIds[currentVideo.id]
-                        ? 'bg-amber-500/25 text-amber-400'
-                        : 'bg-[#222222] hover:bg-[#333333] text-white'
-                    }`}
-                  >
-                    <Bookmark
-                      size={22}
-                      fill={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'none'}
-                    />
-                  </div>
-                  <span className="text-[11px] font-bold text-white/80">
-                    {formatCount(currentVideo.share_count ? currentVideo.share_count * 2 : 594)}
-                  </span>
-                </button>
-
-                {/* Share Button ↗️ */}
-                <button
-                  onClick={() => handleShareVideo(currentVideo)}
-                  className="flex flex-col items-center gap-1 text-white group"
-                >
-                  <div className="w-11 h-11 rounded-full bg-[#222222] hover:bg-[#333333] flex items-center justify-center text-white transition">
-                    <Share2 size={22} />
-                  </div>
-                  <span className="text-[11px] font-bold text-white/80">
-                    {formatCount(currentVideo.share_count || 113)}
-                  </span>
-                </button>
-
-                {/* Spinning Music Vinyl Disc */}
-                <div className="w-10 h-10 rounded-full bg-black border-2 border-[#222222] overflow-hidden flex items-center justify-center animate-spin duration-[4000ms] shadow-lg">
-                  <img
-                    src={currentVideo.author.avatar}
-                    alt="Album"
-                    referrerPolicy="no-referrer"
-                    className="w-6 h-6 rounded-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=disc`;
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* UP / DOWN NAVIGATION CHEVRONS (Desktop) */}
-              <div className="hidden lg:flex flex-col items-center gap-2.5 ml-4 z-20">
-                <button
-                  onClick={goToPrevVideo}
-                  disabled={activeIndex === 0}
-                  className="w-10 h-10 rounded-full bg-[#222222] hover:bg-[#333333] disabled:opacity-30 disabled:hover:bg-[#222222] text-white flex items-center justify-center transition shadow-lg"
-                  title="Video Sebelumnya (Arrow Up)"
-                >
-                  <ChevronUp size={22} />
-                </button>
-                <button
-                  onClick={goToNextVideo}
-                  disabled={activeIndex === displayedVideos.length - 1}
-                  className="w-10 h-10 rounded-full bg-[#222222] hover:bg-[#333333] disabled:opacity-30 disabled:hover:bg-[#222222] text-white flex items-center justify-center transition shadow-lg"
-                  title="Video Selanjutnya (Arrow Down)"
-                >
-                  <ChevronDown size={22} />
-                </button>
-              </div>
-            </div>
+            </>
           )}
         </main>
       </div>
