@@ -152,7 +152,7 @@ export function RegisterForm() {
     setUser(newProfile);
 
     setIsLoading(false);
-    router.push('/chat');
+    router.push('/media');
     router.refresh();
   };
 

@@ -44,24 +44,24 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
-  const isChatRoute = pathname.startsWith('/chat');
-  const isPublicApi = pathname.startsWith('/api/auth/callback');
+  const isProtectedRoute = pathname.startsWith('/media') || pathname.startsWith('/chat');
+  const isPublicApi = pathname.startsWith('/api/auth/callback') || pathname.startsWith('/api/tiktok');
 
   if (isPublicApi) {
     return supabaseResponse;
   }
 
-  // 1. Jika belum login dan mencoba membuka ruang obrolan /chat, alihkan ke /login
-  if (!isAuthenticated && isChatRoute) {
+  // 1. Jika belum login dan mencoba membuka rute yang dilindungi (/media atau /chat), alihkan ke /login
+  if (!isAuthenticated && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     return NextResponse.redirect(redirectUrl);
   }
 
-  // 2. Jika sudah login dan mencoba mengakses /login atau /register, alihkan ke /chat
+  // 2. Jika sudah login dan mencoba mengakses /login atau /register, alihkan ke /media
   if (isAuthenticated && isAuthRoute) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/chat';
+    redirectUrl.pathname = '/media';
     return NextResponse.redirect(redirectUrl);
   }
 

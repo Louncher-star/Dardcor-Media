@@ -74,7 +74,7 @@ export function LoginForm() {
           setUser(profile);
 
           setIsLoading(false);
-          router.push('/chat');
+          router.push('/media');
           router.refresh();
           return;
         }
@@ -94,7 +94,7 @@ export function LoginForm() {
       setStoredCurrentUser(found);
       setUser(found);
       setIsLoading(false);
-      router.push('/chat');
+      router.push('/media');
       router.refresh();
       return;
     }

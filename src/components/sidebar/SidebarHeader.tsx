@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn } from 'lucide-react';
+import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn, Film } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
@@ -91,6 +91,15 @@ export function SidebarHeader({
           </Link>
         )}
 
+        {/* Media Feed TikTok */}
+        <Link
+          href="/media"
+          title="Buka Media Feed TikTok"
+          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition text-[#a78bfa]"
+        >
+          <Film size={20} />
+        </Link>
+
         {/* Status / Stories */}
         <button
           onClick={onOpenStatus}
@@ -121,6 +130,14 @@ export function SidebarHeader({
 
           {menuOpen && (
             <div className="absolute right-0 top-12 w-52 bg-white dark:bg-[#1f1a33] rounded-2xl shadow-2xl border border-[var(--wa-border)] py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100">
+              <Link
+                href="/media"
+                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
+              >
+                <Film size={16} className="text-[#a78bfa]" />
+                <span>Media Feed TikTok</span>
+              </Link>
+
               <button
                 onClick={() => {
                   setMenuOpen(false);
