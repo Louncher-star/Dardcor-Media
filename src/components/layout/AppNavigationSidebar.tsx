@@ -61,18 +61,13 @@ export function AppNavigationSidebar() {
       {/* Brand Header & Toggle Button */}
       <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} mb-6 w-full`}>
         {!isCollapsed && (
-          <Link href="/" className="flex items-center gap-2.5 group min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] flex items-center justify-center shadow-md shadow-purple-900/40 group-hover:scale-105 transition-transform shrink-0">
-              <Film size={16} className="text-white" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="font-extrabold text-sm tracking-tight bg-gradient-to-r from-white via-purple-100 to-purple-300 bg-clip-text text-transparent truncate">
-                Dardcor Media
-              </span>
-              <span className="text-[9px] text-[#c084fc] font-semibold tracking-widest uppercase">
-                Feed & Chat
-              </span>
-            </div>
+          <Link href="/" className="flex flex-col min-w-0 group">
+            <span className="font-extrabold text-base tracking-tight bg-gradient-to-r from-white via-purple-100 to-purple-300 bg-clip-text text-transparent truncate">
+              Dardcor Media
+            </span>
+            <span className="text-[9px] text-[#c084fc] font-semibold tracking-widest uppercase">
+              Feed & Chat
+            </span>
           </Link>
         )}
 
