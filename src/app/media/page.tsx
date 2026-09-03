@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Heart,
   MessageCircle,
+  MessageSquare,
   Share2,
   Bookmark,
   Music,
@@ -256,6 +257,27 @@ export default function TikTokMediaPage() {
       setCurrentTime(0);
       setIsPlaying(true);
     }
+  };
+
+  // Touch swipe gesture support for mobile (Swipe Up = Next, Swipe Down = Prev)
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY.current === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const diff = touchStartY.current - touchEndY;
+    if (diff > 45) {
+      // Swiped UP -> Next video
+      goToNextVideo();
+    } else if (diff < -45) {
+      // Swiped DOWN -> Prev video
+      goToPrevVideo();
+    }
+    touchStartY.current = null;
   };
 
   // Keyboard navigation
@@ -770,53 +792,39 @@ export default function TikTokMediaPage() {
 
         {/* ================= CENTER MAIN VIEW ================= */}
         <main className="flex-1 h-full flex flex-col items-center justify-center relative bg-black overflow-hidden">
-          {/* Mobile Top Header (< md): Menu Hamburger + Tabs */}
-          <div className="md:hidden absolute top-0 left-0 right-0 z-30 h-14 bg-gradient-to-b from-black/80 to-transparent px-4 flex items-center justify-between">
+          {/* Mobile Top Header (< md): Menu Hamburger + Tabs + Search (Exact Match to Gambar 1) */}
+          <div className="md:hidden absolute top-0 left-0 right-0 z-40 h-14 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 flex items-center justify-between pointer-events-auto">
             <button
               onClick={() => setMobileSidebarOpen(true)}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/80 hover:text-white"
+              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/90 hover:text-white"
+              title="Buka Menu"
             >
               <Menu size={22} />
             </button>
-            <div className="flex items-center gap-4 text-sm font-extrabold text-white">
+            <div className="flex items-center gap-5 text-sm font-extrabold text-white">
               <span
                 onClick={() => setActiveMenu('mengikuti')}
-                className={`cursor-pointer ${
-                  activeMenu === 'mengikuti' ? 'border-b-2 border-white pb-0.5' : 'text-white/50'
+                className={`cursor-pointer transition ${
+                  activeMenu === 'mengikuti' ? 'border-b-2 border-white pb-0.5 text-white font-black' : 'text-white/60'
                 }`}
               >
                 Mengikuti
               </span>
               <span
                 onClick={() => setActiveMenu('saran')}
-                className={`cursor-pointer ${
-                  activeMenu === 'saran' ? 'border-b-2 border-white pb-0.5' : 'text-white/50'
+                className={`cursor-pointer transition ${
+                  activeMenu === 'saran' ? 'border-b-2 border-white pb-0.5 text-white font-black' : 'text-white/60'
                 }`}
               >
                 Saran
               </span>
             </div>
             <button
-              onClick={() => {
-                if (isTikTokLoggedIn) setIsProfileViewOpen(true);
-                else setIsLoginModalOpen(true);
-              }}
-              className="w-7 h-7 rounded-full border border-white/30 overflow-hidden bg-[#222222]"
+              onClick={() => setActiveMenu('jelajahi')}
+              className="p-1.5 rounded-full text-white/90 hover:text-white transition"
+              title="Cari Video & Kreator"
             >
-              <img
-                src={
-                  tiktokUser?.avatar_url ||
-                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
-                    tiktokUser?.unique_id || 'user'
-                  )}`
-                }
-                alt="Profile"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=user`;
-                }}
-                className="w-full h-full object-cover"
-              />
+              <Search size={22} />
             </button>
           </div>
 
@@ -936,14 +944,18 @@ export default function TikTokMediaPage() {
               </button>
             </div>
           ) : (
-            /* ================= CONDITION 4: MAIN VIDEO PLAYER (Gambar 1) ================= */
-            <div className="relative flex items-center justify-center w-full h-full p-2 sm:p-4">
-              {/* VIDEO FRAME BOX */}
+            /* ================= CONDITION 4: MAIN VIDEO PLAYER (Persis Gambar 1 di Mobile) ================= */
+            <div
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              className="relative flex items-center justify-center w-full h-full p-0 md:p-4 bg-black overflow-hidden"
+            >
+              {/* VIDEO FRAME BOX (Fullscreen di Mobile, Aspect Card di Desktop) */}
               <div
                 onDoubleClick={handleVideoDoubleClick}
-                className="relative h-[86vh] max-h-[820px] aspect-[9/16] bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10 select-none flex items-center justify-center group"
+                className="relative w-full h-full md:w-auto md:h-[86vh] md:max-h-[820px] md:aspect-[9/16] bg-black md:rounded-2xl overflow-hidden md:shadow-2xl md:border md:border-white/10 select-none flex items-center justify-center group"
               >
-                {/* Video */}
+                {/* Video Element */}
                 <video
                   ref={activeVideoRef}
                   key={currentVideo.id}
@@ -969,10 +981,10 @@ export default function TikTokMediaPage() {
                   </div>
                 ))}
 
-                {/* Sound Toggle Button (Top-Left of Video Frame like Gambar 1) */}
+                {/* Sound Toggle Button (Top-Left) */}
                 <button
                   onClick={() => setIsMuted((prev) => !prev)}
-                  className="absolute top-4 left-4 z-20 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 hover:text-white transition shadow-lg"
+                  className="absolute top-16 md:top-4 left-4 z-30 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 hover:text-white transition shadow-lg"
                   title={isMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
                 >
                   {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -990,34 +1002,129 @@ export default function TikTokMediaPage() {
                   </div>
                 )}
 
+                {/* MOBILE ONLY: RIGHT VERTICAL FLOATING ACTION COLUMN (Exact Match to Gambar 1) */}
+                <div className="md:hidden absolute right-2.5 bottom-20 z-30 flex flex-col items-center gap-3.5 pointer-events-auto">
+                  {/* Creator Avatar with Red '+' badge */}
+                  <div className="relative mb-1">
+                    <img
+                      src={currentVideo.author.avatar}
+                      alt={currentVideo.author.nickname}
+                      referrerPolicy="no-referrer"
+                      onClick={() => handleOpenCreator(currentVideo.author)}
+                      onError={(e) => {
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                          currentVideo.author.unique_id
+                        )}`;
+                      }}
+                      className="w-11 h-11 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg active:scale-95 transition"
+                    />
+                    {!followingCreatorIds[currentVideo.author.id] && (
+                      <button
+                        onClick={() => handleToggleFollow(currentVideo.author.id)}
+                        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#FE2C55] text-white flex items-center justify-center font-black text-xs shadow-md"
+                        title="Ikuti Kreator"
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Like Button */}
+                  <button
+                    onClick={() => handleToggleLike(currentVideo.id)}
+                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                  >
+                    <Heart
+                      size={28}
+                      fill={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'rgba(255,255,255,0.9)'}
+                      color={likedVideoIds[currentVideo.id] ? '#FE2C55' : 'white'}
+                      className="drop-shadow-lg"
+                    />
+                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                      {formatCount(currentVideo.digg_count)}
+                    </span>
+                  </button>
+
+                  {/* Comment Button */}
+                  <button
+                    onClick={() => handleOpenComments(currentVideo)}
+                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                  >
+                    <MessageCircle size={28} className="text-white drop-shadow-lg fill-white/10" />
+                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                      {formatCount(currentVideo.comment_count)}
+                    </span>
+                  </button>
+
+                  {/* Bookmark Button */}
+                  <button
+                    onClick={() => handleToggleFavorite(currentVideo.id)}
+                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                  >
+                    <Bookmark
+                      size={28}
+                      fill={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'rgba(255,255,255,0.1)'}
+                      color={favoritedVideoIds[currentVideo.id] ? '#f59e0b' : 'white'}
+                      className="drop-shadow-lg"
+                    />
+                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                      {formatCount(currentVideo.share_count ? currentVideo.share_count * 2 : 594)}
+                    </span>
+                  </button>
+
+                  {/* Share Button */}
+                  <button
+                    onClick={() => handleShareVideo(currentVideo)}
+                    className="flex flex-col items-center gap-0.5 text-white active:scale-90 transition"
+                  >
+                    <Share2 size={28} className="text-white drop-shadow-lg" />
+                    <span className="text-[11px] font-bold text-white drop-shadow-md">
+                      {formatCount(currentVideo.share_count || 113)}
+                    </span>
+                  </button>
+
+                  {/* Spinning Vinyl Music Disc (Gambar 1) */}
+                  <div className="w-10 h-10 rounded-full bg-black/80 border-2 border-[#333333] overflow-hidden flex items-center justify-center animate-[spin_4s_linear_infinite] shadow-xl mt-1">
+                    <img
+                      src={currentVideo.author.avatar}
+                      alt="Audio"
+                      referrerPolicy="no-referrer"
+                      className="w-5 h-5 rounded-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=disc`;
+                      }}
+                    />
+                  </div>
+                </div>
+
                 {/* Bottom Details Overlay (Caption, Author, Audio) */}
-                <div className="absolute left-0 right-0 bottom-0 z-20 p-4 pt-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white space-y-2 pointer-events-auto">
+                <div className="absolute left-0 right-0 bottom-0 z-20 p-4 pb-20 md:pb-4 pt-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white space-y-1.5 pointer-events-auto pr-16 md:pr-4">
                   {/* Author Name */}
                   <div
                     onClick={() => handleOpenCreator(currentVideo.author)}
-                    className="font-bold text-sm hover:underline cursor-pointer flex items-center gap-1.5"
+                    className="font-black text-sm sm:text-base hover:underline cursor-pointer drop-shadow-md flex items-center gap-1.5"
                   >
-                    <span>—{currentVideo.author.nickname}</span>
+                    <span>{currentVideo.author.nickname}</span>
                   </div>
 
                   {/* Caption & Hashtags */}
-                  <p className="text-xs text-white/90 line-clamp-2 leading-relaxed">
+                  <p className="text-xs text-white/95 line-clamp-2 leading-relaxed drop-shadow-md font-medium">
                     {currentVideo.title}
                   </p>
 
-                  <div className="flex items-center gap-1 text-[11px] text-white/50 hover:underline cursor-pointer">
+                  <div className="flex items-center gap-1 text-[11px] text-white/60 hover:underline cursor-pointer drop-shadow-sm">
                     <span>Lihat terjemahan</span>
                   </div>
 
                   {/* Audio Music Track */}
-                  <div className="flex items-center gap-2 text-[11px] text-white/80 font-medium pt-1">
-                    <Music size={12} className="flex-shrink-0 animate-pulse" />
+                  <div className="flex items-center gap-2 text-[11px] text-white/90 font-medium pt-0.5 drop-shadow-md">
+                    <Music size={12} className="flex-shrink-0 animate-pulse text-[#FE2C55]" />
                     <span className="truncate">
                       {currentVideo.music_info?.title || 'Suara asli - ' + currentVideo.author.nickname}
                     </span>
                   </div>
 
-                  {/* Red Progress Bar (Gambar 1) */}
+                  {/* Red Progress Bar */}
                   <div
                     onClick={(e) => {
                       const rect = e.currentTarget.getBoundingClientRect();
@@ -1037,14 +1144,20 @@ export default function TikTokMediaPage() {
                 </div>
               </div>
 
-              {/* RIGHT VERTICAL FLOATING ACTION COLUMN (Exact Match to Gambar 1) */}
-              <div className="flex flex-col items-center gap-4 ml-4 sm:ml-5 z-20">
+              {/* DESKTOP ONLY: RIGHT VERTICAL FLOATING ACTION COLUMN */}
+              <div className="hidden md:flex flex-col items-center gap-4 ml-4 sm:ml-5 z-20">
                 {/* Creator Avatar with Red '+' badge */}
                 <div className="relative mb-1">
                   <img
                     src={currentVideo.author.avatar}
                     alt={currentVideo.author.nickname}
+                    referrerPolicy="no-referrer"
                     onClick={() => handleOpenCreator(currentVideo.author)}
+                    onError={(e) => {
+                      e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                        currentVideo.author.unique_id
+                      )}`;
+                    }}
                     className="w-12 h-12 rounded-full object-cover border-2 border-white cursor-pointer shadow-lg hover:scale-105 transition"
                   />
                   {!followingCreatorIds[currentVideo.author.id] && (
@@ -1128,17 +1241,21 @@ export default function TikTokMediaPage() {
                   </span>
                 </button>
 
-                {/* Spinning Music Vinyl Disc (Gambar 1) */}
+                {/* Spinning Music Vinyl Disc */}
                 <div className="w-10 h-10 rounded-full bg-black border-2 border-[#222222] overflow-hidden flex items-center justify-center animate-spin duration-[4000ms] shadow-lg">
                   <img
                     src={currentVideo.author.avatar}
                     alt="Album"
+                    referrerPolicy="no-referrer"
                     className="w-6 h-6 rounded-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=disc`;
+                    }}
                   />
                 </div>
               </div>
 
-              {/* UP / DOWN NAVIGATION CHEVRONS (Gambar 1) */}
+              {/* UP / DOWN NAVIGATION CHEVRONS (Desktop) */}
               <div className="hidden lg:flex flex-col items-center gap-2.5 ml-4 z-20">
                 <button
                   onClick={goToPrevVideo}
@@ -1161,6 +1278,83 @@ export default function TikTokMediaPage() {
           )}
         </main>
       </div>
+
+      {/* ================= MOBILE BOTTOM NAVIGATION BAR (Exact Match to Gambar 1) ================= */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-14 bg-black/95 backdrop-blur-md border-t border-white/10 flex items-center justify-around px-2 text-white">
+        {/* 1. Beranda */}
+        <button
+          onClick={() => setActiveMenu('saran')}
+          className={`flex flex-col items-center gap-0.5 transition ${
+            activeMenu === 'saran' ? 'text-white font-bold' : 'text-white/50 hover:text-white'
+          }`}
+        >
+          <Home size={20} className={activeMenu === 'saran' ? 'fill-white' : ''} />
+          <span className="text-[10px]">Beranda</span>
+        </button>
+
+        {/* 2. Temukan */}
+        <button
+          onClick={() => setActiveMenu('jelajahi')}
+          className={`flex flex-col items-center gap-0.5 transition ${
+            activeMenu === 'jelajahi' ? 'text-white font-bold' : 'text-white/50 hover:text-white'
+          }`}
+        >
+          <Compass size={20} className={activeMenu === 'jelajahi' ? 'text-[#FE2C55]' : ''} />
+          <span className="text-[10px]">Temukan</span>
+        </button>
+
+        {/* 3. TikTok 3D Plus Upload Button (Gambar 1) */}
+        <button
+          onClick={() => {
+            if (isTikTokLoggedIn) setIsUploadModalOpen(true);
+            else setIsLoginModalOpen(true);
+          }}
+          className="relative w-11 h-7 flex items-center justify-center cursor-pointer transition active:scale-95"
+          title="Unggah Video"
+        >
+          <div className="absolute inset-0 bg-[#00F2FE] rounded-lg -translate-x-1" />
+          <div className="absolute inset-0 bg-[#FE2C55] rounded-lg translate-x-1" />
+          <div className="relative w-full h-full bg-white rounded-lg flex items-center justify-center text-black font-black text-lg leading-none shadow-sm">
+            +
+          </div>
+        </button>
+
+        {/* 4. Kotak Masuk */}
+        <button
+          onClick={() => {
+            if (isTikTokLoggedIn) setIsMessagesDrawerOpen(true);
+            else setIsLoginModalOpen(true);
+          }}
+          className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white transition"
+        >
+          <MessageSquare size={20} />
+          <span className="text-[10px]">Kotak Masuk</span>
+        </button>
+
+        {/* 5. Profil */}
+        <button
+          onClick={() => {
+            if (isTikTokLoggedIn) setIsProfileViewOpen(true);
+            else setIsLoginModalOpen(true);
+          }}
+          className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white transition"
+        >
+          {isTikTokLoggedIn && tiktokUser ? (
+            <img
+              src={tiktokUser.avatar_url}
+              alt={tiktokUser.nickname}
+              referrerPolicy="no-referrer"
+              className="w-5 h-5 rounded-full object-cover border border-white/40"
+              onError={(e) => {
+                e.currentTarget.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=user`;
+              }}
+            />
+          ) : (
+            <User size={20} />
+          )}
+          <span className="text-[10px]">Profil</span>
+        </button>
+      </nav>
 
       {/* ================= MODALS & DRAWERS ================= */}
       {/* 1. TikTok Login Modal (Masuk Akun TikTok via Gmail / Username) */}
