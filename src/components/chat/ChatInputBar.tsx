@@ -16,9 +16,10 @@ import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 interface ChatInputBarProps {
   chatId: string;
   onSendTyping: (isTyping: boolean) => void;
+  onRequestFilePreview?: (file: File, type: 'image' | 'video' | 'audio' | 'document') => void;
 }
 
-export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
+export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: ChatInputBarProps) {
   const { user } = useAuthStore();
   const {
     replyingToMessage,
@@ -116,8 +117,13 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
     textareaRef.current?.focus();
   };
 
-  // Kirim Pesan Media (Foto, Video, Dokumen)
-  const handleSelectMedia = async (file: File, type: 'image' | 'video' | 'document') => {
+  // Kirim Pesan Media (Foto, Video, Audio, Dokumen Apapun)
+  const handleSelectMedia = async (file: File, type: 'image' | 'video' | 'audio' | 'document') => {
+    if (onRequestFilePreview) {
+      onRequestFilePreview(file, type);
+      return;
+    }
+
     if (!user) return;
     setIsUploadingMedia(true);
 
@@ -125,13 +131,17 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
       const folderMap = {
         image: 'images' as const,
         video: 'videos' as const,
+        audio: 'audios' as const,
         document: 'documents' as const,
       };
 
-      const { url } = await uploadChatMedia(file, file.name, folderMap[type]);
+      const { url } = await uploadChatMedia(file, file.name, folderMap[type] || 'documents');
       playMessageSentSound();
 
-      const mediaMsgId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
+      const mediaMsgId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
       const newMsg: Message = {
         id: mediaMsgId,
         chat_id: chatId,
@@ -141,7 +151,7 @@ export function ChatInputBar({ chatId, onSendTyping }: ChatInputBarProps) {
         media_url: url,
         media_name: file.name,
         media_size: file.size,
-        media_mime_type: file.type,
+        media_mime_type: file.type || 'application/octet-stream',
         is_deleted_for_all: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

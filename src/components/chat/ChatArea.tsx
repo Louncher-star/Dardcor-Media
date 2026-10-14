@@ -1,23 +1,42 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { EmptyChatState } from './EmptyChatState';
 import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { ChatInputBar } from './ChatInputBar';
+import { FilePreviewModal } from './FilePreviewModal';
 import { usePresence } from '@/lib/hooks/usePresence';
-import { fetchChatMessages, fetchUserChats, subscribeToLocalSync } from '@/lib/services/chatService';
+import {
+  fetchChatMessages,
+  fetchUserChats,
+  subscribeToLocalSync,
+  appendMessage,
+} from '@/lib/services/chatService';
+import { uploadChatMedia } from '@/lib/utils/mediaUtils';
+import { playMessageSentSound } from '@/lib/utils/soundUtils';
+import { Message } from '@/types';
+import { UploadCloud } from 'lucide-react';
 
 export function ChatArea() {
   const { user } = useAuthStore();
-  const { chats, setChats, activeChatId, setActiveChatId, messages, setMessages } = useChatStore();
+  const { chats, setChats, activeChatId, setActiveChatId, messages, setMessages, addMessage } =
+    useChatStore();
 
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   // Presence hook for typing signal
   const { sendTypingSignal } = usePresence(activeChatId);
+
+  // States untuk File Upload Preview & Drag-and-Drop
+  const [previewFile, setPreviewFile] = useState<{
+    file: File;
+    type: 'image' | 'video' | 'audio' | 'document';
+  } | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Fetch messages saat chat aktif berubah
   useEffect(() => {
@@ -47,7 +66,120 @@ export function ChatArea() {
     });
 
     return () => unsubscribe();
-  }, [activeChatId, setMessages]);
+  }, [activeChatId, setMessages, user, chats, setChats]);
+
+  // Handler kirim file dengan keterangan (caption) dari modal preview
+  const handleSendMediaWithCaption = async (
+    file: File,
+    type: 'image' | 'video' | 'audio' | 'document',
+    caption: string
+  ) => {
+    if (!user || !activeChat) return;
+    setIsUploadingMedia(true);
+
+    try {
+      const folderMap = {
+        image: 'images' as const,
+        video: 'videos' as const,
+        audio: 'audios' as const,
+        document: 'documents' as const,
+      };
+
+      const { url } = await uploadChatMedia(file, file.name, folderMap[type] || 'documents');
+      playMessageSentSound();
+
+      const mediaMsgId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
+
+      const otherUserId = activeChat.other_participant?.id;
+
+      const newMsg: Message = {
+        id: mediaMsgId,
+        chat_id: activeChat.id,
+        sender_id: user.id,
+        content: caption || null,
+        message_type: type,
+        media_url: url,
+        media_name: file.name,
+        media_size: file.size,
+        media_mime_type: file.type || 'application/octet-stream',
+        is_deleted_for_all: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sender: user,
+      };
+
+      addMessage(newMsg);
+      await appendMessage(newMsg, user.id, otherUserId);
+      setPreviewFile(null);
+    } catch (err) {
+      console.error('Failed to upload and send file:', err);
+      alert('Gagal mengunggah file. Pastikan koneksi dan Supabase aktif.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  // Helper resolusi tipe file
+  const resolveFileType = (file: File): 'image' | 'video' | 'audio' | 'document' => {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name))
+      return 'audio';
+    return 'document';
+  };
+
+  // Drag & Drop Handlers ala WhatsApp Web
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Cegah flicker saat melewati anak elemen
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const type = resolveFileType(file);
+      setPreviewFile({ file, type });
+    }
+  };
+
+  // Dukungan Paste File / Screenshot (Ctrl + V) ala WhatsApp Web
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!activeChatId) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file') {
+          const file = items[i].getAsFile();
+          if (file) {
+            const type = resolveFileType(file);
+            setPreviewFile({ file, type });
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [activeChatId]);
 
   if (!activeChatId || !activeChat) {
     return (
@@ -60,23 +192,46 @@ export function ChatArea() {
   const currentMessages = messages[activeChatId] || [];
 
   return (
-    <main className="flex-1 h-full flex flex-col bg-[var(--wa-chat-bg)] relative overflow-hidden z-10">
+    <main
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="flex-1 h-full flex flex-col bg-[var(--wa-chat-bg)] relative overflow-hidden z-10 select-none"
+    >
+      {/* WhatsApp Drag & Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-[#0c1317]/85 backdrop-blur-sm border-4 border-dashed border-[#00a884] flex flex-col items-center justify-center p-6 text-white text-center pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-20 h-20 rounded-full bg-[#00a884]/20 border border-[#00a884]/40 flex items-center justify-center text-[#00a884] mb-4 shadow-2xl animate-bounce">
+            <UploadCloud size={42} />
+          </div>
+          <h3 className="text-xl font-bold tracking-wide">Lepaskan file di sini untuk mengirim</h3>
+          <p className="text-sm text-white/60 mt-1 max-w-sm">
+            Kirim dokumen, zip, apk, foto, video, audio, atau file apa saja ke obrolan ini
+          </p>
+        </div>
+      )}
+
       {/* Header */}
-      <ChatHeader
-        chat={activeChat}
-        onBack={() => setActiveChatId(null)}
-      />
+      <ChatHeader chat={activeChat} onBack={() => setActiveChatId(null)} />
 
       {/* Message Canvas */}
-      <MessageList
-        messages={currentMessages}
-        isGroup={activeChat.is_group}
-      />
+      <MessageList messages={currentMessages} isGroup={activeChat.is_group} />
 
       {/* Input Bar */}
       <ChatInputBar
         chatId={activeChat.id}
         onSendTyping={sendTypingSignal}
+        onRequestFilePreview={(file, type) => setPreviewFile({ file, type })}
+      />
+
+      {/* WhatsApp Media Preview & Caption Modal */}
+      <FilePreviewModal
+        isOpen={Boolean(previewFile)}
+        file={previewFile?.file || null}
+        fileType={previewFile?.type || 'document'}
+        isUploading={isUploadingMedia}
+        onClose={() => setPreviewFile(null)}
+        onSend={handleSendMediaWithCaption}
       />
     </main>
   );

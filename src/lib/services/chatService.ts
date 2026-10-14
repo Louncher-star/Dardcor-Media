@@ -326,6 +326,7 @@ export async function appendMessage(message: Message, currentUserId: string, oth
         media_url: message.media_url,
         media_name: message.media_name,
         media_size: message.media_size,
+        media_mime_type: message.media_mime_type,
         media_duration: message.media_duration,
         reply_to_id: safeReplyId,
       });

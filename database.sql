@@ -105,6 +105,15 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS messages_sender_id_fkey;
 
+-- Pastikan kolom media selalu ada meskipun tabel messages sudah dibuat sebelumnya
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_url TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_name TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_size BIGINT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_mime_type TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_duration INTEGER;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS reply_to_id UUID;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_deleted_for_all BOOLEAN DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON public.messages(chat_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON public.messages(sender_id);
 
@@ -506,6 +515,84 @@ END $$;
 DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_uploaded_videos;
 EXCEPTION WHEN others THEN null;
+END $$;
+
+-- ============================================================================
+-- 16. STORAGE BUCKETS (chat-media & avatars) UNTUK UPLOAD FILE BEBAS ALA WHATSAPP
+-- ============================================================================
+-- Skrip ini otomatis membuat bucket penyimpanan di Supabase Storage
+-- Mendukung upload dokumen apapun (.pdf, .docx, .zip, .apk, .xlsx, .csv, code, dll)
+-- serta Foto, Video, Audio / Voice Notes tanpa batasan tipe file (allowed_mime_types = null)
+
+-- 1. Buat bucket 'chat-media' (Batas ukuran 100MB, file apa saja diperbolehkan)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('chat-media', 'chat-media', true, 104857600, null)
+ON CONFLICT (id) DO UPDATE SET
+    public = true,
+    file_size_limit = 104857600,
+    allowed_mime_types = null;
+
+-- 2. Buat bucket 'avatars' (Batas ukuran 10MB)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('avatars', 'avatars', true, 10485760, null)
+ON CONFLICT (id) DO UPDATE SET
+    public = true,
+    file_size_limit = 10485760,
+    allowed_mime_types = null;
+
+-- 3. Kebijakan Keamanan Storage (RLS) untuk bucket 'chat-media'
+-- Memungkinkan siapa saja membaca/mengunduh file media yang dikirim
+DO $$ BEGIN
+    CREATE POLICY "Public read access on chat-media"
+        ON storage.objects FOR SELECT
+        USING (bucket_id = 'chat-media');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- Memungkinkan pengguna mengunggah file media ke 'chat-media'
+DO $$ BEGIN
+    CREATE POLICY "Public insert access on chat-media"
+        ON storage.objects FOR INSERT
+        WITH CHECK (bucket_id = 'chat-media');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- Memungkinkan pembaruan file media di 'chat-media'
+DO $$ BEGIN
+    CREATE POLICY "Public update access on chat-media"
+        ON storage.objects FOR UPDATE
+        USING (bucket_id = 'chat-media');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- Memungkinkan penghapusan file media di 'chat-media'
+DO $$ BEGIN
+    CREATE POLICY "Public delete access on chat-media"
+        ON storage.objects FOR DELETE
+        USING (bucket_id = 'chat-media');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- 4. Kebijakan Keamanan Storage (RLS) untuk bucket 'avatars'
+DO $$ BEGIN
+    CREATE POLICY "Public read access on avatars"
+        ON storage.objects FOR SELECT
+        USING (bucket_id = 'avatars');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE POLICY "Public insert access on avatars"
+        ON storage.objects FOR INSERT
+        WITH CHECK (bucket_id = 'avatars');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE POLICY "Public update access on avatars"
+        ON storage.objects FOR UPDATE
+        USING (bucket_id = 'avatars');
+EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 
