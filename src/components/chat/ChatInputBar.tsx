@@ -36,6 +36,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const attachmentRef = useRef<HTMLDivElement>(null);
 
   const currentChat = chats.find((c) => c.id === chatId);
   const otherUserId = currentChat?.other_participant?.id;
@@ -60,10 +61,13 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
   // Click outside to close emoji picker & attachment menu
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(target)) {
         setIsEmojiPickerOpen(false);
       }
-      setIsAttachmentOpen(false);
+      if (attachmentRef.current && !attachmentRef.current.contains(target)) {
+        setIsAttachmentOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -275,12 +279,12 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
           </div>
 
           {/* Attachment Button */}
-          <div className="relative">
+          <div className="relative" ref={attachmentRef}>
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsAttachmentOpen(!isAttachmentOpen);
+                setIsAttachmentOpen((prev) => !prev);
               }}
               title="Lampiran"
               className="p-2.5 text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition"
