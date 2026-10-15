@@ -43,7 +43,6 @@ import { TikTokVideoItem } from '@/app/api/tiktok/route';
 import { ScrapedComment } from '@/app/api/tiktok/comments/route';
 import { CreatorProfileModal } from '@/components/media/CreatorProfileModal';
 import { CommentDrawer } from '@/components/media/CommentDrawer';
-import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
 import { TikTokLoginModal } from '@/components/media/TikTokLoginModal';
 import { TikTokMessagesDrawer } from '@/components/media/TikTokMessagesDrawer';
 import { TikTokLiveModal } from '@/components/media/TikTokLiveModal';
@@ -589,12 +588,7 @@ export default function TikTokMediaPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* 1. FAR-LEFT: DARDCOR MEDIA DEFAULT SIDEBAR (Gambar 3 - Slim Rail w-[58px]) */}
-      {/* ========================================================================= */}
-      <AppNavigationSidebar defaultCollapsed={true} />
-
-      {/* ========================================================================= */}
-      {/* 2. TIKTOK INTERFACE CONTAINER (Exact Match to Gambar 1 & Gambar 2)       */}
+      {/* TIKTOK INTERFACE CONTAINER - SINGLE UNIFIED SIDEBAR (NO DOUBLE SIDEBAR) */}
       {/* ========================================================================= */}
       <div className="flex-1 h-full flex overflow-hidden relative bg-black">
         {/* ================= DESKTOP TIKTOK SIDEBAR (Gambar 1) ================= */}
@@ -727,7 +721,26 @@ export default function TikTokMediaPage() {
               )}
             </button>
 
-            {/* 7. Aktivitas */}
+            {/* 7. Chat Obrolan (Kembali ke WhatsApp Chat Dardcor Media) */}
+            <Link
+              href="/chat"
+              className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-purple-300 hover:text-white hover:bg-purple-600/20 transition ${
+                isTikTokSidebarCollapsed ? 'justify-center px-2' : ''
+              }`}
+              title="Buka Chat Obrolan Dardcor Media"
+            >
+              <MessageSquare size={20} className="text-purple-400 shrink-0" />
+              {!isTikTokSidebarCollapsed && (
+                <div className="flex items-center justify-between flex-1 min-w-0">
+                  <span className="truncate">Chat Obrolan</span>
+                  <span className="text-[10px] bg-purple-500/25 text-purple-200 font-bold px-2 py-0.5 rounded-full border border-purple-500/40">
+                    Dardcor
+                  </span>
+                </div>
+              )}
+            </Link>
+
+            {/* 8. Aktivitas */}
             <button
               onClick={() => setIsActivityDrawerOpen(true)}
               className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-white hover:bg-white/5 transition ${
@@ -862,13 +875,14 @@ export default function TikTokMediaPage() {
         <main className="flex-1 h-full flex flex-col items-center justify-center relative bg-black overflow-hidden">
           {/* Mobile Top Header (< md): Menu Hamburger + Tabs + Search (Selalu Fixed di Atas, Tidak Pernah Hilang) */}
           <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-gradient-to-b from-black/95 via-black/60 to-transparent px-4 flex items-center justify-between pointer-events-auto pt-[env(safe-area-inset-top,0px)]">
-            <button
-              onClick={() => setMobileSidebarOpen(true)}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/90 hover:text-white"
-              title="Buka Menu"
+            <Link
+              href="/chat"
+              className="px-3 py-1.5 rounded-full bg-purple-600/35 border border-purple-500/40 text-purple-200 hover:text-white flex items-center gap-1.5 transition text-xs font-bold shadow-lg active:scale-95"
+              title="Buka Chat Obrolan"
             >
-              <Menu size={22} />
-            </button>
+              <MessageSquare size={14} className="text-purple-300" />
+              <span>Chat</span>
+            </Link>
             <div className="flex items-center gap-5 text-sm font-extrabold text-white">
               <span
                 onClick={() => setActiveMenu('mengikuti')}

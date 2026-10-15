@@ -217,7 +217,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
   };
 
   return (
-    <footer className="bg-[var(--wa-header-bg)] border-t border-[var(--wa-border)] p-2 relative shrink-0 z-20">
+    <footer className="bg-[var(--wa-header-bg)] border-t border-[var(--wa-border)] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] relative shrink-0 z-20">
       {/* Quoted Message Banner */}
       {replyingToMessage && (
         <div className="mb-2 p-2 bg-[var(--wa-bg-sidebar)] border-l-4 border-[#8b5cf6] rounded flex items-center justify-between shadow-sm">

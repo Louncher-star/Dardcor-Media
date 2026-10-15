@@ -52,67 +52,69 @@ export function SidebarHeader({
 
   return (
     <header className="h-16 px-4 bg-[var(--wa-header-bg)] flex items-center justify-between border-b border-[var(--wa-border)] shrink-0 select-none backdrop-blur-md">
-      {/* Left: Mobile Menu Trigger & User Avatar & App Title */}
-      <div className="flex items-center gap-2.5">
+      {/* ================= DESKTOP HEADER (>= md): Authentic Clean "Obrolan" Title (No Duplicate Profile) ================= */}
+      <div className="hidden md:flex items-center gap-3">
+        <h1 className="text-xl font-black text-[var(--wa-text-primary)] tracking-tight">
+          Obrolan
+        </h1>
+        {isGuest && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+            Demo
+          </span>
+        )}
+      </div>
+
+      {/* ================= MOBILE HEADER (< md): Mobile App Branding & User Avatar ================= */}
+      <div className="flex md:hidden items-center gap-2.5">
         <button
           onClick={() => setMobileSidebarOpen(true)}
-          className="md:hidden p-1.5 rounded-xl bg-white/5 hover:bg-purple-600/20 text-purple-300 hover:text-white transition"
+          className="p-2 -ml-1 rounded-xl text-purple-300 hover:text-white hover:bg-white/5 active:scale-95 transition"
           title="Buka Menu Navigasi"
         >
-          <Menu size={20} />
+          <Menu size={22} />
         </button>
 
-        <div className="cursor-pointer" onClick={onOpenProfile} title="Lihat Profil">
+        <div className="cursor-pointer active:scale-95 transition" onClick={onOpenProfile} title="Lihat Profil">
           <Avatar
             src={user?.avatar_url}
             name={user?.display_name || user?.username || 'Saya'}
-            size="md"
+            size="sm"
           />
         </div>
 
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm bg-gradient-to-r from-purple-400 to-indigo-300 bg-clip-text text-transparent">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-sm bg-gradient-to-r from-purple-300 via-purple-100 to-indigo-200 bg-clip-text text-transparent truncate">
               Dardcor Media
             </span>
             {isGuest && (
-              <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              <span className="px-1.5 py-0.2 rounded text-[8px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 Demo
               </span>
             )}
           </div>
-          <span className="text-[11px] text-[var(--wa-text-secondary)] truncate max-w-[130px]">
+          <span className="text-[10px] text-[var(--wa-text-secondary)] truncate max-w-[120px]">
             {user?.display_name || `@${user?.username}`}
           </span>
         </div>
       </div>
 
-      {/* Right: Action Icons */}
-      <div className="flex items-center gap-1.5 text-[var(--wa-text-secondary)]">
-        {isGuest && (
-          <Link
-            href="/login"
-            className="px-3 py-1 bg-gradient-to-r from-[#7c3aed] to-[#9333ea] hover:from-[#8b5cf6] hover:to-[#7c3aed] text-white text-xs font-medium rounded-full shadow-md shadow-purple-900/30 transition flex items-center gap-1"
-          >
-            <LogIn size={13} />
-            <span>Masuk</span>
-          </Link>
-        )}
-
-        {/* Media Feed TikTok */}
+      {/* Right: Actions */}
+      <div className="flex items-center gap-1 text-[var(--wa-text-secondary)]">
+        {/* On Mobile Only: Jump to TikTok Feed Button */}
         <Link
           href="/media"
-          title="Buka Media Feed TikTok"
-          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition text-[#a78bfa]"
+          title="Buka TikTok Media Feed"
+          className="md:hidden p-2 rounded-full hover:bg-[var(--wa-hover)] text-[#25F4EE] hover:text-[#25F4EE] transition active:scale-95"
         >
           <Film size={20} />
         </Link>
 
-        {/* Status / Stories */}
+        {/* Status / Cerita */}
         <button
           onClick={onOpenStatus}
           title="Status / Cerita"
-          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition"
+          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
         >
           <CircleDashed size={20} />
         </button>
@@ -121,7 +123,7 @@ export function SidebarHeader({
         <button
           onClick={onOpenNewChat}
           title="Mulai Obrolan Baru"
-          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition"
+          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
         >
           <MessageSquarePlus size={20} />
         </button>
@@ -130,8 +132,8 @@ export function SidebarHeader({
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            title="Menu"
-            className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition"
+            title="Menu Pilihan"
+            className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
           >
             <MoreVertical size={20} />
           </button>
@@ -142,7 +144,7 @@ export function SidebarHeader({
                 href="/media"
                 className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
               >
-                <Film size={16} className="text-[#a78bfa]" />
+                <Film size={16} className="text-[#25F4EE]" />
                 <span>Media Feed TikTok</span>
               </Link>
 

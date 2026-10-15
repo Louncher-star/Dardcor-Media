@@ -94,9 +94,10 @@ export function ChatHeader({ chat, onBack }: ChatHeaderProps) {
         {onBack && (
           <button
             onClick={onBack}
-            className="md:hidden p-1.5 -ml-1 text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full"
+            className="md:hidden w-10 h-10 -ml-2 rounded-full text-purple-300 hover:text-white hover:bg-white/10 active:scale-90 transition flex items-center justify-center shrink-0"
+            title="Kembali ke Daftar Obrolan"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={22} />
           </button>
         )}
 

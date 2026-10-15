@@ -95,7 +95,7 @@ export function AttachmentMenu({ isOpen, onClose, onSelectMedia }: AttachmentMen
         <div
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-16 left-3 bg-white dark:bg-[#233138] rounded-2xl shadow-2xl border border-[var(--wa-border)] p-2 z-50 flex flex-col gap-1 select-none animate-in fade-in slide-in-from-bottom-2 duration-150 min-w-[220px]"
+          className="absolute bottom-16 left-2 sm:left-3 bg-white dark:bg-[#233138] rounded-2xl shadow-2xl border border-[var(--wa-border)] p-2 z-50 flex flex-col gap-1 select-none animate-in fade-in slide-in-from-bottom-2 duration-150 min-w-[210px] max-w-[calc(100vw-24px)]"
         >
           {/* Documents (File Apapun Bebas) */}
           <button

@@ -12,6 +12,7 @@ import { fetchUserChats, subscribeToLocalSync } from '@/lib/services/chatService
 import { DEMO_CURRENT_USER, DEMO_CHATS, DEMO_MESSAGES } from '@/lib/utils/demoData';
 import { useRealtimeChat } from '@/lib/hooks/useRealtimeChat';
 import { usePresence } from '@/lib/hooks/usePresence';
+import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
 import { Sparkles, ArrowRight, X } from 'lucide-react';
 
 export default function HomePage() {
@@ -119,6 +120,9 @@ export default function HomePage() {
 
       {/* Main Chat Interface Container */}
       <div className="flex-1 w-full h-full flex overflow-hidden relative">
+        {/* Unified Navigation Rail on Desktop */}
+        <AppNavigationSidebar />
+
         {/* Sidebar Container: on mobile, hidden if activeChatId is set */}
         <div
           className={`h-full ${

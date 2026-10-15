@@ -144,7 +144,7 @@ export function FilePreviewModal({
   const badge = getFileBadge();
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-md flex flex-col justify-between p-3 sm:p-6 animate-in fade-in duration-150 select-none">
+    <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex flex-col justify-between p-3 sm:p-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] animate-in fade-in duration-150 select-none">
       {/* Top Bar: Close Button & File Name */}
       <div className="flex items-center justify-between text-white border-b border-white/10 pb-3">
         <button
