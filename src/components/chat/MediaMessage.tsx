@@ -8,33 +8,32 @@ import {
   Music,
   Download,
   Eye,
-  X,
-  Play,
-  Pause,
+  Maximize2,
   FileQuestion,
   Smartphone,
-  ExternalLink,
 } from 'lucide-react';
 import { Message } from '@/types';
 import { formatFileSize } from '@/lib/utils';
+import { useChatStore } from '@/lib/store/useChatStore';
 
 interface MediaMessageProps {
   message: Message;
 }
 
 export function MediaMessage({ message }: MediaMessageProps) {
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const { setLightboxMessage } = useChatStore();
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   if (!message.media_url) return null;
 
-  // 1. Gambar (Photo)
+  // 1. Gambar (Photo) ala WhatsApp Web
   if (message.message_type === 'image') {
     return (
       <div className="rounded-lg overflow-hidden my-1 max-w-sm">
         <div
-          onClick={() => setIsPreviewOpen(true)}
+          onClick={() => setLightboxMessage(message)}
           className="cursor-pointer relative group overflow-hidden rounded-lg bg-black/5"
+          title="Klik untuk membuka pratinjau foto penuh"
         >
           <img
             src={message.media_url}
@@ -42,65 +41,34 @@ export function MediaMessage({ message }: MediaMessageProps) {
             className="w-full max-h-72 object-cover rounded-lg group-hover:opacity-95 transition"
           />
           <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition text-white gap-2">
-            <span className="p-2 rounded-full bg-black/50 backdrop-blur-sm">
-              <Eye size={20} />
+            <span className="p-2.5 rounded-full bg-black/60 backdrop-blur-sm shadow-xl scale-95 group-hover:scale-105 transition-transform">
+              <Eye size={22} />
             </span>
           </div>
         </div>
-
-        {/* Lightbox Preview Modal */}
-        {isPreviewOpen && (
-          <div
-            onClick={() => setIsPreviewOpen(false)}
-            className="fixed inset-0 z-[300] bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-150"
-          >
-            <div className="absolute top-4 right-4 flex items-center gap-2">
-              <a
-                href={message.media_url}
-                download={message.media_name || 'foto.jpg'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="p-2 text-white/80 hover:text-white rounded-full bg-white/10 hover:bg-white/20 transition"
-                title="Unduh Gambar"
-              >
-                <Download size={20} />
-              </a>
-              <button
-                onClick={() => setIsPreviewOpen(false)}
-                className="p-2 text-white/80 hover:text-white rounded-full bg-white/10 hover:bg-white/20 transition"
-                title="Tutup"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <img
-              src={message.media_url}
-              alt="Preview"
-              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            />
-
-            {message.media_name && (
-              <p className="mt-3 text-white/70 text-xs font-mono">{message.media_name}</p>
-            )}
-          </div>
-        )}
       </div>
     );
   }
 
-  // 2. Video
+  // 2. Video ala WhatsApp Web
   if (message.message_type === 'video') {
     return (
-      <div className="rounded-lg overflow-hidden my-1 max-w-sm">
-        <video
-          src={message.media_url}
-          controls
-          playsInline
-          className="w-full max-h-72 rounded-lg bg-black object-contain shadow-md"
-        />
+      <div className="rounded-lg overflow-hidden my-1 max-w-sm group relative">
+        <div className="relative">
+          <video
+            src={message.media_url}
+            controls
+            playsInline
+            className="w-full max-h-72 rounded-lg bg-black object-contain shadow-md"
+          />
+          <button
+            onClick={() => setLightboxMessage(message)}
+            className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition backdrop-blur-sm opacity-0 group-hover:opacity-100 shadow"
+            title="Buka Video di Lightbox Penuh"
+          >
+            <Maximize2 size={16} />
+          </button>
+        </div>
         {message.media_name && (
           <div className="flex items-center justify-between text-[11px] text-[var(--wa-text-secondary)] mt-1 px-1">
             <span className="truncate max-w-[200px]">{message.media_name}</span>

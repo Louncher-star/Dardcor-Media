@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Send,
@@ -35,10 +36,15 @@ export function FilePreviewModal({
   onSend,
 }: FilePreviewModalProps) {
   const { theme } = useChatStore();
+  const [mounted, setMounted] = useState(false);
   const [caption, setCaption] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (file && (fileType === 'image' || fileType === 'video' || fileType === 'audio')) {
@@ -66,7 +72,7 @@ export function FilePreviewModal({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!isOpen || !file) return null;
+  if (!mounted || !isOpen || !file) return null;
 
   const handleSend = () => {
     if (isUploading) return;
@@ -143,8 +149,8 @@ export function FilePreviewModal({
 
   const badge = getFileBadge();
 
-  return (
-    <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex flex-col justify-between p-3 sm:p-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] animate-in fade-in duration-150 select-none">
+  const modalContent = (
+    <div className="fixed inset-0 z-[999998] bg-black/90 backdrop-blur-md flex flex-col justify-between p-3 sm:p-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] animate-in fade-in duration-150 select-none">
       {/* Top Bar: Close Button & File Name */}
       <div className="flex items-center justify-between text-white border-b border-white/10 pb-3">
         <button
@@ -269,4 +275,6 @@ export function FilePreviewModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

@@ -8,6 +8,7 @@ interface ChatState {
   onlineUserIds: string[];
   typingUsers: { [chatId: string]: { [userId: string]: string } };
   replyingToMessage: Message | null;
+  lightboxMessage: Message | null;
   searchQuery: string;
   chatFilter: 'all' | 'unread' | 'favorites' | 'groups';
   theme: 'dark' | 'light';
@@ -16,6 +17,7 @@ interface ChatState {
   // Actions
   setMobileSidebarOpen: (open: boolean) => void;
   setActiveChatId: (chatId: string | null) => void;
+  setLightboxMessage: (message: Message | null) => void;
   setChats: (chats: Chat[]) => void;
   addChat: (chat: Chat) => void;
   updateChat: (chatId: string, updates: Partial<Chat>) => void;
@@ -40,15 +42,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   onlineUserIds: [],
   typingUsers: {},
   replyingToMessage: null,
+  lightboxMessage: null,
   searchQuery: '',
   chatFilter: 'all',
   theme: 'dark', // Default ke tema gelap otentik WhatsApp Web
   isMobileSidebarOpen: false,
 
   setMobileSidebarOpen: (isMobileSidebarOpen) => set({ isMobileSidebarOpen }),
+  setLightboxMessage: (lightboxMessage) => set({ lightboxMessage }),
 
   setActiveChatId: (activeChatId) => {
-    set({ activeChatId, replyingToMessage: null });
+    set({ activeChatId, replyingToMessage: null, lightboxMessage: null });
     // Reset unread count untuk chat aktif
     if (activeChatId) {
       const { chats } = get();

@@ -8,6 +8,7 @@ import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { ChatInputBar } from './ChatInputBar';
 import { FilePreviewModal } from './FilePreviewModal';
+import { MediaLightboxModal } from './MediaLightboxModal';
 import { usePresence } from '@/lib/hooks/usePresence';
 import {
   fetchChatMessages,
@@ -233,6 +234,9 @@ export function ChatArea() {
         onClose={() => setPreviewFile(null)}
         onSend={handleSendMediaWithCaption}
       />
+
+      {/* WhatsApp Fullscreen Media Lightbox Viewer */}
+      <MediaLightboxModal />
     </main>
   );
 }
