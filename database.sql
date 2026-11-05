@@ -524,12 +524,12 @@ END $$;
 -- Mendukung upload dokumen apapun (.pdf, .docx, .zip, .apk, .xlsx, .csv, code, dll)
 -- serta Foto, Video, Audio / Voice Notes tanpa batasan tipe file (allowed_mime_types = null)
 
--- 1. Buat bucket 'chat-media' (Batas ukuran 100MB, file apa saja diperbolehkan)
+-- 1. Buat bucket 'chat-media' (Tanpa batas ukuran bucket / null, mendukung file besar via chunking)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES ('chat-media', 'chat-media', true, 104857600, null)
+VALUES ('chat-media', 'chat-media', true, null, null)
 ON CONFLICT (id) DO UPDATE SET
     public = true,
-    file_size_limit = 104857600,
+    file_size_limit = null,
     allowed_mime_types = null;
 
 -- 2. Buat bucket 'avatars' (Batas ukuran 10MB)

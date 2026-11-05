@@ -23,6 +23,7 @@ interface FilePreviewModalProps {
   file: File | null;
   fileType: 'image' | 'video' | 'audio' | 'document';
   isUploading: boolean;
+  uploadStatus?: string;
   onClose: () => void;
   onSend: (file: File, type: 'image' | 'video' | 'audio' | 'document', caption: string) => void;
 }
@@ -32,6 +33,7 @@ export function FilePreviewModal({
   file,
   fileType,
   isUploading,
+  uploadStatus,
   onClose,
   onSend,
 }: FilePreviewModalProps) {
@@ -259,19 +261,22 @@ export function FilePreviewModal({
           />
         </div>
 
-        {/* Send Button */}
-        <button
-          onClick={handleSend}
-          disabled={isUploading}
-          className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#00a884] to-[#25d366] hover:from-[#00b58e] hover:to-[#22c55e] text-white flex items-center justify-center shadow-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0"
-          title="Kirim File"
-        >
-          {isUploading ? (
-            <Loader2 size={22} className="animate-spin text-white" />
-          ) : (
+        {/* Send Button with Progress Feedback */}
+        {isUploading ? (
+          <div className="flex items-center gap-2 bg-[#00a884]/20 border border-[#00a884]/40 px-4 py-2.5 rounded-2xl text-xs text-[#00a884] font-medium shrink-0 animate-pulse">
+            <Loader2 size={18} className="animate-spin text-[#00a884] shrink-0" />
+            <span className="truncate max-w-[200px]">{uploadStatus || 'Mengunggah file...'}</span>
+          </div>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={isUploading}
+            className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#00a884] to-[#25d366] hover:from-[#00b58e] hover:to-[#22c55e] text-white flex items-center justify-center shadow-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0"
+            title="Kirim File"
+          >
             <Send size={20} className="translate-x-0.5" />
-          )}
-        </button>
+          </button>
+        )}
       </div>
     </div>
   );

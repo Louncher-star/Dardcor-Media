@@ -21,6 +21,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { formatFullMediaDateTime } from '@/lib/utils/dateUtils';
 import { formatFileSize } from '@/lib/utils';
 import { Message } from '@/types';
+import { downloadMediaFile } from '@/lib/utils/mediaUtils';
 
 export function MediaLightboxModal() {
   const { user } = useAuthStore();
@@ -154,7 +155,7 @@ export function MediaLightboxModal() {
     setIsDragging(false);
   };
 
-  // Download helper yang handal
+  // Download helper yang handal ala WhatsApp
   const handleDownload = async () => {
     if (!currentMedia?.media_url) return;
     const fileName =
@@ -162,26 +163,10 @@ export function MediaLightboxModal() {
       (currentMedia.message_type === 'video' ? 'video.mp4' : 'foto.jpg');
 
     try {
-      const res = await fetch(currentMedia.media_url);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      // Fallback direct link download
-      const a = document.createElement('a');
-      a.href = currentMedia.media_url;
-      a.download = fileName;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await downloadMediaFile(currentMedia.media_url, fileName);
+    } catch (err: unknown) {
+      console.error('Download error in lightbox:', err);
+      alert('Gagal mengunduh media: ' + (err instanceof Error ? err.message : 'Koneksi terputus'));
     }
   };
 

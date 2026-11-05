@@ -11,10 +11,12 @@ import {
   Maximize2,
   FileQuestion,
   Smartphone,
+  Loader2,
 } from 'lucide-react';
 import { Message } from '@/types';
 import { formatFileSize } from '@/lib/utils';
 import { useChatStore } from '@/lib/store/useChatStore';
+import { downloadMediaFile } from '@/lib/utils/mediaUtils';
 
 interface MediaMessageProps {
   message: Message;
@@ -23,8 +25,27 @@ interface MediaMessageProps {
 export function MediaMessage({ message }: MediaMessageProps) {
   const { setLightboxMessage } = useChatStore();
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   if (!message.media_url) return null;
+
+  const handleDownload = async (targetFileName: string) => {
+    if (!message.media_url || isDownloading) return;
+    setIsDownloading(true);
+    setDownloadProgress(0);
+    try {
+      await downloadMediaFile(message.media_url, targetFileName, (percent) => {
+        setDownloadProgress(percent);
+      });
+    } catch (err: unknown) {
+      console.error('Download error:', err);
+      alert('Gagal mengunduh file: ' + (err instanceof Error ? err.message : 'Koneksi terputus'));
+    } finally {
+      setIsDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
 
   // 1. Gambar (Photo) ala WhatsApp Web
   if (message.message_type === 'image') {
@@ -103,16 +124,18 @@ export function MediaMessage({ message }: MediaMessageProps) {
             </div>
           </div>
 
-          <a
-            href={message.media_url}
-            download={message.media_name || 'audio.mp3'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-2 text-[var(--wa-text-secondary)] hover:text-[#00a884] rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition shrink-0"
-            title="Unduh Audio"
+          <button
+            onClick={() => handleDownload(message.media_name || 'audio.mp3')}
+            disabled={isDownloading}
+            className="p-2 text-[var(--wa-text-secondary)] hover:text-[#00a884] rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition shrink-0 disabled:opacity-50"
+            title={isDownloading ? `Mengunduh (${downloadProgress ?? 0}%)...` : 'Unduh Audio'}
           >
-            <Download size={18} />
-          </a>
+            {isDownloading ? (
+              <Loader2 size={18} className="animate-spin text-[#00a884]" />
+            ) : (
+              <Download size={18} />
+            )}
+          </button>
         </div>
 
         {/* Native Audio Controls */}
@@ -225,17 +248,22 @@ export function MediaMessage({ message }: MediaMessageProps) {
         </div>
       </div>
 
-      {/* Download Action Button */}
-      <a
-        href={message.media_url}
-        download={fileName}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="p-2.5 rounded-full bg-black/5 dark:bg-white/10 text-[var(--wa-text-secondary)] hover:text-[#00a884] hover:bg-black/10 dark:hover:bg-white/20 transition shrink-0 shadow-sm"
-        title={`Unduh ${fileName}`}
+      {/* Download Action Button ala WhatsApp Real */}
+      <button
+        onClick={() => handleDownload(fileName)}
+        disabled={isDownloading}
+        className="p-2.5 rounded-full bg-black/5 dark:bg-white/10 text-[var(--wa-text-secondary)] hover:text-[#00a884] hover:bg-black/10 dark:hover:bg-white/20 transition shrink-0 shadow-sm disabled:opacity-75 flex items-center justify-center min-w-[36px]"
+        title={isDownloading ? `Mengunduh (${downloadProgress ?? 0}%)...` : `Unduh ${fileName}`}
       >
-        <Download size={18} />
-      </a>
+        {isDownloading ? (
+          <div className="flex items-center gap-1 text-[11px] font-bold text-[#00a884] px-1">
+            <Loader2 size={16} className="animate-spin shrink-0" />
+            {downloadProgress !== null && downloadProgress > 0 && <span>{downloadProgress}%</span>}
+          </div>
+        ) : (
+          <Download size={18} />
+        )}
+      </button>
     </div>
   );
 }

@@ -37,6 +37,7 @@ export function ChatArea() {
     type: 'image' | 'video' | 'audio' | 'document';
   } | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
 
   // Fetch messages saat chat aktif berubah
@@ -77,6 +78,11 @@ export function ChatArea() {
   ) => {
     if (!user || !activeChat) return;
     setIsUploadingMedia(true);
+    setUploadStatus(
+      file.size > 40 * 1024 * 1024
+        ? 'Menyiapkan berkas besar...'
+        : 'Mengunggah file...'
+    );
 
     try {
       const folderMap = {
@@ -86,7 +92,20 @@ export function ChatArea() {
         document: 'documents' as const,
       };
 
-      const { url } = await uploadChatMedia(file, file.name, folderMap[type] || 'documents');
+      const { url } = await uploadChatMedia(
+        file,
+        file.name,
+        folderMap[type] || 'documents',
+        (progress) => {
+          if (progress.totalParts > 1) {
+            setUploadStatus(
+              `Mengunggah bagian ${progress.currentPart}/${progress.totalParts} (${progress.percent}%)...`
+            );
+          } else {
+            setUploadStatus('Mengunggah ke penyimpanan...');
+          }
+        }
+      );
       playMessageSentSound();
 
       const mediaMsgId =
@@ -115,11 +134,13 @@ export function ChatArea() {
       addMessage(newMsg);
       await appendMessage(newMsg, user.id, otherUserId);
       setPreviewFile(null);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to upload and send file:', err);
-      alert('Gagal mengunggah file. Pastikan koneksi dan Supabase aktif.');
+      const errMsg = err instanceof Error ? err.message : 'Pastikan koneksi dan Supabase aktif.';
+      alert('Gagal mengunggah file: ' + errMsg);
     } finally {
       setIsUploadingMedia(false);
+      setUploadStatus('');
     }
   };
 
@@ -231,6 +252,7 @@ export function ChatArea() {
         file={previewFile?.file || null}
         fileType={previewFile?.type || 'document'}
         isUploading={isUploadingMedia}
+        uploadStatus={uploadStatus}
         onClose={() => setPreviewFile(null)}
         onSend={handleSendMediaWithCaption}
       />
