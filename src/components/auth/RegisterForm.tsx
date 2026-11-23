@@ -125,8 +125,7 @@ export function RegisterForm() {
         setAuthCookie(newProfile.id);
         setUser(newProfile);
         setIsLoading(false);
-        router.push('/chat');
-        router.refresh();
+        window.location.href = '/chat';
         return;
       } catch {
         setErrorMessage('Tidak dapat terhubung ke server autentikasi. Coba lagi.');

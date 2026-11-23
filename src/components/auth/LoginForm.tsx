@@ -75,8 +75,7 @@ export function LoginForm() {
           saveRegisteredUser({ ...profile, email: cleanEmail, password });
 
           setIsLoading(false);
-          router.push('/chat');
-          router.refresh();
+          window.location.href = '/chat';
           return;
         }
 
@@ -88,22 +87,24 @@ export function LoginForm() {
           .or(`email.ilike.${cleanEmail},username.ilike.${cleanEmail}`)
           .maybeSingle();
 
-        if (
-          !profileErr &&
-          matchedProfile &&
-          (matchedProfile.password === password ||
-            matchedProfile.phone_number === password)
-        ) {
-          const profile = matchedProfile as Profile;
-          setAuthCookie(profile.id);
-          setStoredCurrentUser(profile);
-          setUser(profile);
-          saveRegisteredUser({ ...profile, email: cleanEmail, password });
+        if (!profileErr && matchedProfile) {
+          const passValid =
+            matchedProfile.password === password ||
+            matchedProfile.phone_number === password ||
+            matchedProfile.password === password.trim() ||
+            matchedProfile.phone_number === password.trim();
 
-          setIsLoading(false);
-          router.push('/chat');
-          router.refresh();
-          return;
+          if (passValid) {
+            const profile = matchedProfile as Profile;
+            setAuthCookie(profile.id);
+            setStoredCurrentUser(profile);
+            setUser(profile);
+            saveRegisteredUser({ ...profile, email: cleanEmail, password });
+
+            setIsLoading(false);
+            window.location.href = '/chat';
+            return;
+          }
         }
       } catch (err) {
         console.warn('Supabase login error, checking fallback:', err);
@@ -118,8 +119,7 @@ export function LoginForm() {
       setStoredCurrentUser(found);
       setUser(found);
       setIsLoading(false);
-      router.push('/chat');
-      router.refresh();
+      window.location.href = '/chat';
       return;
     }
 
