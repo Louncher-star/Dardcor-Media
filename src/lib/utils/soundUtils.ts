@@ -1,6 +1,24 @@
 // Synthesized sound effects using Web Audio API for WhatsApp Web
-export function playMessageSentSound() {
+export const SOUND_PREFERENCE_KEY = 'dardcor_sound_enabled';
+
+export function isSoundEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return localStorage.getItem(SOUND_PREFERENCE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function setSoundEnabled(enabled: boolean) {
   if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SOUND_PREFERENCE_KEY, String(enabled));
+  } catch {}
+}
+
+export function playMessageSentSound() {
+  if (typeof window === 'undefined' || !isSoundEnabled()) return;
   try {
     const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
     if (!AudioContext) return;
@@ -26,7 +44,7 @@ export function playMessageSentSound() {
 }
 
 export function playMessageReceivedSound() {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || !isSoundEnabled()) return;
   try {
     const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
     if (!AudioContext) return;

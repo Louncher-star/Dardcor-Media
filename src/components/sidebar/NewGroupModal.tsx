@@ -27,13 +27,7 @@ export function NewGroupModal({ isOpen, onClose }: NewGroupModalProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) {
-      setStep(1);
-      setSelectedUsers([]);
-      setGroupName('');
-      setGroupDesc('');
-      return;
-    }
+    if (!isOpen) return;
 
     const fetchContacts = async () => {
       try {

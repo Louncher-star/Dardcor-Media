@@ -4,6 +4,7 @@ import { toValidUuid } from '@/lib/utils/uuidUtils';
 
 const CHATS_PREFIX = 'dardcor_chats_';
 const MESSAGES_PREFIX = 'dardcor_messages_';
+const STARRED_PREFIX = 'dardcor_starred_';
 
 // Sync channel antar tab browser
 let syncChannel: BroadcastChannel | null = null;
@@ -94,6 +95,9 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
             }
 
             const lastMsg = (latestMessages || []).find((m) => m.chat_id === chat.id);
+            const myPart = chatPartis.find(
+              (p) => p.user_id === safeUserId || p.user_id === userId
+            );
 
             return {
               ...chat,
@@ -101,6 +105,11 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
               other_participant: otherParticipant,
               last_message: lastMsg as Message | undefined,
               last_message_at: lastMsg?.created_at || chat.last_message_at,
+              is_pinned: Boolean(myPart?.is_pinned),
+              is_archived: Boolean(myPart?.is_archived),
+              is_muted: Boolean(myPart?.is_muted),
+              my_role: myPart?.role || 'member',
+              disappearing_seconds: Number(chat.disappearing_seconds) || 0,
             };
           });
 
@@ -140,7 +149,11 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
     }
   }
 
-  // Local Storage Fallback
+  // Saat Supabase aktif, kegagalan query tidak boleh jatuh ke cache lokal
+  // (bisa membocorkan obrolan pengguna lain di perangkat yang sama).
+  if (isSupabaseConfigured()) return [];
+
+  // Local Storage Fallback (mode demo)
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
@@ -171,7 +184,7 @@ export function saveUserChats(userId: string, chats: Chat[]) {
 }
 
 // 3. Ambil pesan dalam suatu chat (Disatukan otomatis jika pernah ada obrolan duplikat)
-export async function fetchChatMessages(chatId: string): Promise<Message[]> {
+export async function fetchChatMessages(chatId: string, userId?: string): Promise<Message[]> {
   const safeChatId = toValidUuid(chatId);
   if (isSupabaseConfigured()) {
     try {
@@ -223,9 +236,24 @@ export async function fetchChatMessages(chatId: string): Promise<Message[]> {
       }
 
       if (messagesData) {
+        // Sembunyikan pesan yang sudah dihapus khusus untuk pengguna ini.
+        let visibleMessages = messagesData;
+        if (userId && messagesData.length > 0) {
+          const { data: hidden } = await supabase
+            .from('message_deleted_for_users')
+            .select('message_id')
+            .eq('user_id', toValidUuid(userId))
+            .in(
+              'message_id',
+              messagesData.map((m) => m.id)
+            );
+          const hiddenIds = new Set((hidden || []).map((h) => h.message_id));
+          visibleMessages = messagesData.filter((m) => !hiddenIds.has(m.id));
+        }
+
         // B. Ambil profil sender
         const senderIds = [
-          ...new Set(messagesData.map((m) => m.sender_id).filter(Boolean)),
+          ...new Set(visibleMessages.map((m) => m.sender_id).filter(Boolean)),
         ];
         const { data: senderProfiles } = await supabase
           .from('profiles')
@@ -235,7 +263,7 @@ export async function fetchChatMessages(chatId: string): Promise<Message[]> {
         const profileMap = new Map((senderProfiles || []).map((p) => [p.id, p as Profile]));
 
         // C. Ambil reactions & statuses
-        const messageIds = messagesData.map((m) => m.id);
+        const messageIds = visibleMessages.map((m) => m.id);
         const { data: reactions } = await supabase
           .from('message_reactions')
           .select('*')
@@ -246,12 +274,20 @@ export async function fetchChatMessages(chatId: string): Promise<Message[]> {
           .select('*')
           .in('message_id', messageIds);
 
-        const assembled: Message[] = messagesData.map((msg) => ({
+        const assembled: Message[] = visibleMessages.map((msg) => ({
           ...msg,
           sender: profileMap.get(msg.sender_id),
           reactions: (reactions || []).filter((r) => r.message_id === msg.id),
           statuses: (statuses || []).filter((s) => s.message_id === msg.id),
         }));
+
+        // Lengkapi kutipan balasan agar pratinjau pesan yang dibalas tampil utuh.
+        const byId = new Map(assembled.map((m) => [m.id, m]));
+        for (const msg of assembled) {
+          if (msg.reply_to_id) {
+            msg.reply_to = byId.get(msg.reply_to_id) || null;
+          }
+        }
 
         saveChatMessages(chatId, assembled);
         return assembled;
@@ -261,7 +297,9 @@ export async function fetchChatMessages(chatId: string): Promise<Message[]> {
     }
   }
 
-  // Local Storage
+  if (isSupabaseConfigured()) return [];
+
+  // Local Storage (mode demo)
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(`${MESSAGES_PREFIX}${chatId}`);
@@ -350,7 +388,7 @@ export async function appendMessage(message: Message, currentUserId: string, oth
   }
 
   // Local Storage Logic: Simpan pesan di chatId
-  const existingMessages = await fetchChatMessages(message.chat_id);
+  const existingMessages = await fetchChatMessages(message.chat_id, currentUserId);
   const updated = [...existingMessages, message];
   saveChatMessages(message.chat_id, updated);
 
@@ -376,5 +414,322 @@ export async function appendMessage(message: Message, currentUserId: string, oth
       receiverChats[rIdx].unread_count = (receiverChats[rIdx].unread_count || 0) + 1;
       saveUserChats(otherUserId, receiverChats);
     }
+  }
+}
+
+// ============================================================================
+// PREFERENSI OBROLAN: SEMATKAN, BISUKAN, ARSIPKAN
+// ============================================================================
+export interface ChatPrefs {
+  is_pinned?: boolean;
+  is_archived?: boolean;
+  is_muted?: boolean;
+}
+
+export async function updateChatPrefs(chatId: string, userId: string, prefs: ChatPrefs) {
+  const safeChatId = toValidUuid(chatId);
+  const safeUserId = toValidUuid(userId);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('chat_participants')
+        .update(prefs)
+        .eq('chat_id', safeChatId)
+        .eq('user_id', safeUserId);
+    } catch (err) {
+      console.error('Error updating chat preferences:', err);
+    }
+  }
+
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
+    if (!raw) return;
+    const chats: Chat[] = JSON.parse(raw);
+    const updated = chats.map((c) => {
+      if (c.id !== chatId) return c;
+      return {
+        ...c,
+        ...prefs,
+        participants: (c.participants || []).map((p) =>
+          p.user_id === safeUserId || p.user_id === userId ? { ...p, ...prefs } : p
+        ),
+      };
+    });
+    saveUserChats(userId, updated);
+  } catch {}
+}
+
+// ============================================================================
+// PESAN BERBINTANG (PER PENGGUNA)
+// ============================================================================
+export async function fetchStarredMessageIds(userId: string): Promise<string[]> {
+  if (typeof window === 'undefined') return [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('starred_messages')
+        .select('message_id')
+        .eq('user_id', toValidUuid(userId));
+
+      if (!error && data) {
+        const ids = data.map((row) => row.message_id as string);
+        localStorage.setItem(`${STARRED_PREFIX}${userId}`, JSON.stringify(ids));
+        return ids;
+      }
+    } catch (err) {
+      console.warn('Starred messages table unavailable, using local cache:', err);
+    }
+  }
+
+  if (isSupabaseConfigured()) return [];
+
+  try {
+    const raw = localStorage.getItem(`${STARRED_PREFIX}${userId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setStarredMessage(userId: string, messageId: string, starred: boolean) {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(`${STARRED_PREFIX}${userId}`);
+      const ids: string[] = raw ? JSON.parse(raw) : [];
+      const next = starred
+        ? Array.from(new Set([...ids, messageId]))
+        : ids.filter((id) => id !== messageId);
+      localStorage.setItem(`${STARRED_PREFIX}${userId}`, JSON.stringify(next));
+    } catch {}
+  }
+
+  if (!isSupabaseConfigured()) return;
+  try {
+    const supabase = createClient();
+    if (starred) {
+      await supabase
+        .from('starred_messages')
+        .upsert({ message_id: messageId, user_id: toValidUuid(userId) });
+    } else {
+      await supabase
+        .from('starred_messages')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', toValidUuid(userId));
+    }
+  } catch (err) {
+    console.warn('Gagal menyimpan pesan berbintang ke cloud:', err);
+  }
+}
+
+// ============================================================================
+// BERSIHKAN & HAPUS OBROLAN
+// ============================================================================
+export async function clearChatMessagesForUser(chatId: string, userId: string) {
+  const safeChatId = toValidUuid(chatId);
+  const safeUserId = toValidUuid(userId);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data: messages } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('chat_id', safeChatId);
+
+      if (messages && messages.length > 0) {
+        await supabase.from('message_deleted_for_users').upsert(
+          messages.map((m) => ({ message_id: m.id, user_id: safeUserId })),
+          { onConflict: 'message_id,user_id' }
+        );
+      }
+    } catch (err) {
+      console.error('Error clearing chat messages:', err);
+    }
+  }
+
+  saveChatMessages(chatId, []);
+}
+
+export async function deleteChatForUser(chatId: string, userId: string) {
+  const safeChatId = toValidUuid(chatId);
+  const safeUserId = toValidUuid(userId);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('chat_participants')
+        .delete()
+        .eq('chat_id', safeChatId)
+        .eq('user_id', safeUserId);
+
+      // Hitung peserta SEBELUM keluar. Jika hanya saya, hapus percakapan.
+      // Jangan pernah menebak dari count setelah RLS menyembunyikan baris lain.
+      const { data: participants } = await supabase
+        .from('chat_participants')
+        .select('user_id')
+        .eq('chat_id', safeChatId);
+
+      if (participants && participants.length <= 1) {
+        await supabase.from('chats').delete().eq('id', safeChatId);
+      }
+    } catch (err) {
+      console.error('Error deleting chat:', err);
+    }
+  }
+
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
+    const chats: Chat[] = raw ? JSON.parse(raw) : [];
+    saveUserChats(userId, chats.filter((c) => c.id !== chatId));
+    localStorage.removeItem(`${MESSAGES_PREFIX}${chatId}`);
+    broadcastLocalSync('MESSAGES_UPDATED', { chatId });
+  } catch {}
+}
+
+// ============================================================================
+// ANGGOTA GRUP
+// ============================================================================
+export async function addChatParticipants(chatId: string, userIds: string[]) {
+  if (!isSupabaseConfigured() || userIds.length === 0) return;
+  try {
+    const supabase = createClient();
+    await supabase.from('chat_participants').upsert(
+      userIds.map((userId) => ({
+        chat_id: toValidUuid(chatId),
+        user_id: toValidUuid(userId),
+        role: 'member',
+      })),
+      { onConflict: 'chat_id,user_id' }
+    );
+  } catch (err) {
+    console.error('Error adding group participants:', err);
+    throw err;
+  }
+}
+
+export async function updateChatSettings(
+  chatId: string,
+  userId: string,
+  settings: { disappearing_seconds?: number }
+) {
+  const safeChatId = toValidUuid(chatId);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('chats')
+        .update(settings)
+        .eq('id', safeChatId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating chat settings:', err);
+      throw err;
+    }
+  }
+
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(`${CHATS_PREFIX}${userId}`);
+    if (!raw) return;
+    const chats: Chat[] = JSON.parse(raw);
+    saveUserChats(
+      userId,
+      chats.map((chat) => (chat.id === chatId ? { ...chat, ...settings } : chat))
+    );
+  } catch {}
+}
+
+// ============================================================================
+// KONTAK DIBLOKIR
+// ============================================================================
+const BLOCKED_PREFIX = 'dardcor_blocked_';
+
+export async function fetchBlockedUserIds(userId: string): Promise<string[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('blocked_users')
+        .select('blocked_user_id')
+        .eq('user_id', toValidUuid(userId));
+      if (!error && data) {
+        return data.map((row) => row.blocked_user_id as string);
+      }
+    } catch (err) {
+      console.warn('Tabel blocked_users belum tersedia:', err);
+    }
+    return [];
+  }
+
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(`${BLOCKED_PREFIX}${userId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setUserBlocked(userId: string, blockedUserId: string, blocked: boolean) {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      if (blocked) {
+        const { error } = await supabase.from('blocked_users').upsert(
+          {
+            user_id: toValidUuid(userId),
+            blocked_user_id: toValidUuid(blockedUserId),
+          },
+          { onConflict: 'user_id,blocked_user_id' }
+        );
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('blocked_users')
+          .delete()
+          .eq('user_id', toValidUuid(userId))
+          .eq('blocked_user_id', toValidUuid(blockedUserId));
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error('Gagal memperbarui status blokir:', err);
+      throw err;
+    }
+    return;
+  }
+
+  if (typeof window === 'undefined') return;
+  try {
+    const key = `${BLOCKED_PREFIX}${userId}`;
+    const raw = localStorage.getItem(key);
+    const ids: string[] = raw ? JSON.parse(raw) : [];
+    const next = blocked
+      ? Array.from(new Set([...ids, blockedUserId]))
+      : ids.filter((id) => id !== blockedUserId);
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+}
+
+export async function removeChatParticipant(chatId: string, userId: string) {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const supabase = createClient();
+    await supabase
+      .from('chat_participants')
+      .delete()
+      .eq('chat_id', toValidUuid(chatId))
+      .eq('user_id', toValidUuid(userId));
+  } catch (err) {
+    console.error('Error removing participant:', err);
+    throw err;
   }
 }

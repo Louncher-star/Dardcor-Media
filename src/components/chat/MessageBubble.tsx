@@ -1,7 +1,18 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Check, CheckCheck, ChevronDown, Reply, Smile, Copy, Trash2, Ban } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  CheckCheck,
+  ChevronDown,
+  Copy,
+  Forward,
+  Reply,
+  Smile,
+  Star,
+  Trash2,
+} from 'lucide-react';
 import { Message } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
@@ -10,16 +21,33 @@ import { MediaMessage } from './MediaMessage';
 import { VoiceMessage } from './VoiceMessage';
 import { MessageReactions, ReactionPickerBar } from './MessageReactions';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { setStarredMessage } from '@/lib/services/chatService';
 import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
   message: Message;
   isGroup?: boolean;
+  searchQuery?: string;
+  onForward?: (message: Message) => void;
+  showTail?: boolean;
 }
 
-export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isGroup = false,
+  searchQuery = '',
+  onForward,
+  showTail = true,
+}: MessageBubbleProps) {
   const { user } = useAuthStore();
-  const { setReplyingToMessage, deleteMessage, addReaction, removeReaction } = useChatStore();
+  const {
+    setReplyingToMessage,
+    deleteMessage,
+    addReaction,
+    removeReaction,
+    starredMessageIds,
+    toggleStarMessage,
+  } = useChatStore();
 
   const isMe = user?.id === message.sender_id;
   const isDeleted = message.is_deleted_for_all;
@@ -27,6 +55,9 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isStarred = starredMessageIds.includes(message.id);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -86,6 +117,17 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
     setMenuOpen(false);
   };
 
+  const handleStar = async () => {
+    toggleStarMessage(message.id);
+    if (user) await setStarredMessage(user.id, message.id, !isStarred);
+    setMenuOpen(false);
+  };
+
+  const handleForward = () => {
+    onForward?.(message);
+    setMenuOpen(false);
+  };
+
   const handleDelete = async (forAll: boolean) => {
     if (forAll) {
       deleteMessage(message.chat_id, message.id, true);
@@ -120,28 +162,44 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
     const hasDelivered = message.statuses?.some((s) => s.status === 'delivered');
 
     if (hasRead) {
-      return <CheckCheck size={16} className="text-[#c084fc]" />;
+      return <CheckCheck size={15} className="text-[var(--wa-ticks-blue)]" />;
     }
     if (hasDelivered) {
-      return <CheckCheck size={16} className="text-[var(--wa-text-secondary)]" />;
+      return <CheckCheck size={15} className="text-[var(--wa-ticks-gray)]" />;
     }
-    return <Check size={16} className="text-[var(--wa-text-secondary)]" />;
+    return <Check size={15} className="text-[var(--wa-ticks-gray)]" />;
   };
 
   return (
     <div
+      id={`msg-${message.id}`}
+      onTouchStart={() => {
+        longPressTimer.current = setTimeout(() => setMenuOpen(true), 500);
+      }}
+      onTouchEnd={() => {
+        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      }}
+      onTouchMove={() => {
+        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      }}
       className={cn(
-        'w-full flex my-1 relative group select-text',
+        'w-full flex my-[1px] relative group select-text scroll-mt-4',
         isMe ? 'justify-end' : 'justify-start'
       )}
     >
       <div
         ref={menuRef}
         className={cn(
-          'relative max-w-[85%] sm:max-w-[70%] rounded-xl px-3 py-1.5 shadow-sm text-sm transition-all',
+          'relative max-w-[85%] sm:max-w-[65%] rounded-[7.5px] px-[9px] py-[6px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] text-[14.2px] leading-[19px] transition-colors',
           isMe
-            ? 'bg-[var(--wa-green-outgoing)] text-[var(--wa-text-primary)] rounded-tr-none'
-            : 'bg-[var(--wa-bubble-incoming)] text-[var(--wa-text-primary)] rounded-tl-none',
+            ? cn(
+                'bg-[var(--wa-green-outgoing)] text-[var(--wa-text-primary)]',
+                showTail && 'rounded-tr-none bubble-tail-out'
+              )
+            : cn(
+                'bg-[var(--wa-bubble-incoming)] text-[var(--wa-text-primary)]',
+                showTail && 'rounded-tl-none bubble-tail-in'
+              ),
           message.reactions && message.reactions.length > 0 ? 'mb-3' : ''
         )}
       >
@@ -155,15 +213,15 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
 
         {/* Sender Name in Group Chat */}
         {isGroup && !isMe && message.sender && (
-          <div className="text-xs font-semibold text-[#c084fc] mb-0.5 select-none">
+          <div className="text-[13px] font-semibold text-[#7c3aed] dark:text-[#c4b5fd] mb-0.5 select-none">
             {message.sender.display_name || message.sender.username}
           </div>
         )}
 
         {/* Replying-To Quote Preview */}
         {message.reply_to && (
-          <div className="mb-1.5 p-2 bg-black/5 dark:bg-white/5 border-l-4 border-[#8b5cf6] rounded text-xs select-none">
-            <span className="font-semibold text-[#c084fc] block truncate">
+          <div className="mb-1.5 px-2 py-1.5 bg-black/[0.06] dark:bg-white/[0.06] border-l-4 border-[var(--wa-teal)] rounded-[4px] text-[12.5px] select-none overflow-hidden">
+            <span className="font-semibold text-[#7c3aed] dark:text-[#c4b5fd] block truncate">
               {message.reply_to.sender?.display_name || 'Seseorang'}
             </span>
             <span className="text-[var(--wa-text-secondary)] truncate block">
@@ -192,15 +250,18 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
 
             {/* Text Message */}
             {message.content && (
-              <div className="whitespace-pre-wrap break-words leading-relaxed pr-14">
-                {message.content}
+              <div className="whitespace-pre-wrap break-words leading-[19px] pr-14">
+                {searchQuery.trim()
+                  ? highlightText(message.content, searchQuery.trim())
+                  : message.content}
               </div>
             )}
           </>
         )}
 
         {/* Time and Status Ticks (Bottom Right of Bubble) */}
-        <div className="flex items-center justify-end gap-1 text-[11px] text-[var(--wa-text-secondary)] mt-0.5 select-none ml-auto float-right clear-both">
+        <div className="flex items-center justify-end gap-1 text-[11px] text-[var(--wa-text-secondary)] mt-1 -mb-0.5 select-none ml-auto float-right clear-both whitespace-nowrap">
+          {isStarred && <Star size={11} className="text-amber-400 fill-amber-400" />}
           <span>{formatMessageTime(message.created_at)}</span>
           {renderTicks()}
         </div>
@@ -209,8 +270,11 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
         {!isDeleted && (
           <div
             className={cn(
-              'absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 select-none',
-              isMe ? 'left-[-46px]' : 'right-[-46px]'
+              'absolute top-1 transition-opacity flex items-center gap-0.5 select-none',
+              menuOpen || reactionPickerOpen
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100',
+              isMe ? 'left-[-44px]' : 'right-[-44px]'
             )}
           >
             {/* React Icon */}
@@ -255,6 +319,25 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
                     <span>Salin Teks</span>
                   </button>
 
+                  <button
+                    onClick={handleForward}
+                    className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--wa-hover)] text-left transition"
+                  >
+                    <Forward size={14} />
+                    <span>Teruskan</span>
+                  </button>
+
+                  <button
+                    onClick={handleStar}
+                    className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--wa-hover)] text-left transition"
+                  >
+                    <Star
+                      size={14}
+                      className={isStarred ? 'text-amber-400 fill-amber-400' : ''}
+                    />
+                    <span>{isStarred ? 'Hapus bintang' : 'Bintang'}</span>
+                  </button>
+
                   <hr className="my-1 border-[var(--wa-border)]" />
 
                   <button
@@ -288,5 +371,21 @@ export function MessageBubble({ message, isGroup = false }: MessageBubbleProps) 
         />
       </div>
     </div>
+  );
+}
+
+function highlightText(text: string, query: string) {
+  if (!query) return text;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+
+  return parts.map((part, index) =>
+    part.toLowerCase() === query.toLowerCase() ? (
+      <mark key={index} className="bg-amber-300/70 text-inherit rounded px-0.5">
+        {part}
+      </mark>
+    ) : (
+      <span key={index}>{part}</span>
+    )
   );
 }

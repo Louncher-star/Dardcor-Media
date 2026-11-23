@@ -1,4 +1,5 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { toValidUuid } from '@/lib/utils/uuidUtils';
 
 export interface ChunkedMediaManifest {
   chunked: true;
@@ -23,7 +24,8 @@ export async function uploadChatMedia(
   file: File | Blob,
   fileName: string,
   folder: 'images' | 'videos' | 'audios' | 'documents' | 'files' | string = 'documents',
-  onProgress?: (progress: UploadProgress) => void
+  onProgress?: (progress: UploadProgress) => void,
+  ownerId?: string
 ): Promise<{ url: string; path: string }> {
   // Jika Supabase belum dikonfigurasi, gunakan Local Blob URL untuk pengujian offline
   if (!isSupabaseConfigured()) {
@@ -34,6 +36,8 @@ export async function uploadChatMedia(
   const supabase = createClient();
   const sanitizedOriginal = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const fileId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  // Setiap unggahan berada di folder userId agar kebijakan Storage bisa memverifikasi pemilik.
+  const baseFolder = ownerId ? `${toValidUuid(ownerId)}/${folder}` : folder;
 
   // =========================================================================
   // 1. FILE BESAR (>40 MB, misalnya 155 MB): UNGGAH DENGAN TEKNOLOGI CHUNKING
@@ -41,7 +45,7 @@ export async function uploadChatMedia(
   if (file.size > CHUNK_THRESHOLD) {
     const totalParts = Math.ceil(file.size / CHUNK_SIZE);
     const chunkUrls: string[] = [];
-    const baseChunkPath = `${folder}/chunked/${fileId}`;
+    const baseChunkPath = `${baseFolder}/chunked/${fileId}`;
 
     for (let i = 0; i < totalParts; i++) {
       const start = i * CHUNK_SIZE;
@@ -106,7 +110,7 @@ export async function uploadChatMedia(
   // 2. FILE STANDAR (<=40 MB): UNGGAH SECARA LANGSUNG
   // =========================================================================
   const cleanName = `${fileId}_${sanitizedOriginal}`;
-  const filePath = `${folder}/${cleanName}`;
+  const filePath = `${baseFolder}/${cleanName}`;
 
   if (onProgress) {
     onProgress({ currentPart: 1, totalParts: 1, percent: 50 });
@@ -233,8 +237,8 @@ export async function uploadAvatar(file: File, userId: string): Promise<string> 
   }
 
   const supabase = createClient();
-  const fileExt = file.name.split('.').pop() || 'png';
-  const filePath = `${userId}/avatar_${Date.now()}.${fileExt}`;
+  const fileExt = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'png';
+  const filePath = `${toValidUuid(userId)}/avatar_${Date.now()}.${fileExt}`;
 
   const { data, error } = await supabase.storage
     .from('avatars')

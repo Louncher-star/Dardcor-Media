@@ -9,8 +9,11 @@ interface ChatState {
   typingUsers: { [chatId: string]: { [userId: string]: string } };
   replyingToMessage: Message | null;
   lightboxMessage: Message | null;
+  starredMessageIds: string[];
+  blockedUserIds: string[];
   searchQuery: string;
   chatFilter: 'all' | 'unread' | 'favorites' | 'groups';
+  drafts: { [chatId: string]: string };
   theme: 'dark' | 'light';
   isMobileSidebarOpen: boolean;
 
@@ -21,6 +24,11 @@ interface ChatState {
   setChats: (chats: Chat[]) => void;
   addChat: (chat: Chat) => void;
   updateChat: (chatId: string, updates: Partial<Chat>) => void;
+  deleteChat: (chatId: string) => void;
+  setStarredMessageIds: (ids: string[]) => void;
+  toggleStarMessage: (messageId: string) => void;
+  setBlockedUserIds: (ids: string[]) => void;
+  toggleBlockedUser: (userId: string) => void;
   setMessages: (chatId: string, messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (chatId: string, messageId: string, updates: Partial<Message>) => void;
@@ -32,6 +40,7 @@ interface ChatState {
   setReplyingToMessage: (message: Message | null) => void;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: 'all' | 'unread' | 'favorites' | 'groups') => void;
+  setDraft: (chatId: string, text: string) => void;
   toggleTheme: () => void;
 }
 
@@ -43,8 +52,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   typingUsers: {},
   replyingToMessage: null,
   lightboxMessage: null,
+  starredMessageIds: [],
+  blockedUserIds: [],
   searchQuery: '',
   chatFilter: 'all',
+  drafts: {},
   theme: 'dark', // Default ke tema gelap otentik WhatsApp Web
   isMobileSidebarOpen: false,
 
@@ -74,6 +86,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
   updateChat: (chatId, updates) =>
     set((state) => ({
       chats: state.chats.map((c) => (c.id === chatId ? { ...c, ...updates } : c)),
+    })),
+
+  deleteChat: (chatId) =>
+    set((state) => {
+      const nextMessages = { ...state.messages };
+      const nextDrafts = { ...state.drafts };
+      delete nextMessages[chatId];
+      delete nextDrafts[chatId];
+      return {
+        chats: state.chats.filter((c) => c.id !== chatId),
+        messages: nextMessages,
+        drafts: nextDrafts,
+        activeChatId: state.activeChatId === chatId ? null : state.activeChatId,
+      };
+    }),
+
+  setStarredMessageIds: (starredMessageIds) => set({ starredMessageIds }),
+
+  toggleStarMessage: (messageId) =>
+    set((state) => ({
+      starredMessageIds: state.starredMessageIds.includes(messageId)
+        ? state.starredMessageIds.filter((id) => id !== messageId)
+        : [...state.starredMessageIds, messageId],
+    })),
+
+  setBlockedUserIds: (blockedUserIds) => set({ blockedUserIds }),
+
+  toggleBlockedUser: (userId) =>
+    set((state) => ({
+      blockedUserIds: state.blockedUserIds.includes(userId)
+        ? state.blockedUserIds.filter((id) => id !== userId)
+        : [...state.blockedUserIds, userId],
     })),
 
   setMessages: (chatId, messages) =>
@@ -215,6 +259,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
 
   setChatFilter: (chatFilter) => set({ chatFilter }),
+
+  setDraft: (chatId, text) =>
+    set((state) => {
+      const nextDrafts = { ...state.drafts };
+      if (text.trim()) {
+        nextDrafts[chatId] = text;
+      } else {
+        delete nextDrafts[chatId];
+      }
+      return { drafts: nextDrafts };
+    }),
 
   toggleTheme: () =>
     set((state) => {

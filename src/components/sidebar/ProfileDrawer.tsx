@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowLeft, Check, Edit2, Camera } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Avatar } from '@/components/ui/Avatar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { uploadAvatar } from '@/lib/utils/mediaUtils';
 
 interface ProfileDrawerProps {
   isOpen: boolean;
@@ -19,8 +20,31 @@ export function ProfileDrawer({ isOpen, onClose }: ProfileDrawerProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingAbout, setIsEditingAbout] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen || !user) return null;
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+
+    setIsUploadingAvatar(true);
+    try {
+      const url = await uploadAvatar(file, user.id);
+      updateProfile({ avatar_url: url });
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+      }
+    } catch (err) {
+      console.error('Gagal mengunggah foto profil:', err);
+      alert('Gagal mengunggah foto profil. Coba lagi.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   const handleSaveName = async () => {
     if (!displayName.trim()) return;
@@ -72,13 +96,32 @@ export function ProfileDrawer({ isOpen, onClose }: ProfileDrawerProps) {
       <div className="flex-1 overflow-y-auto">
         {/* Avatar Section */}
         <div className="flex flex-col items-center justify-center p-8 bg-[var(--wa-header-bg)]/40 border-b border-[var(--wa-border)]">
-          <div className="relative group cursor-pointer">
+          <button
+            type="button"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={isUploadingAvatar}
+            className="relative group cursor-pointer rounded-full"
+            title="Ubah foto profil"
+          >
             <Avatar src={user.avatar_url} name={user.display_name} size="xl" className="w-36 h-36 ring-4 ring-purple-500/20 shadow-xl" />
-            <div className="absolute inset-0 rounded-full bg-black/50 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
-              <Camera size={26} />
-              <span className="text-[10px] font-semibold uppercase mt-1">Ubah Foto</span>
-            </div>
-          </div>
+            <span className="absolute inset-0 rounded-full bg-black/50 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
+              {isUploadingAvatar ? (
+                <span className="w-7 h-7 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Camera size={26} />
+                  <span className="text-[10px] font-semibold uppercase mt-1">Ubah Foto</span>
+                </>
+              )}
+            </span>
+          </button>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
         </div>
 
         {/* Display Name Section */}

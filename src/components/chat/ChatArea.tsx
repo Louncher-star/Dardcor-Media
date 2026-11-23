@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { EmptyChatState } from './EmptyChatState';
@@ -9,6 +9,10 @@ import { MessageList } from './MessageList';
 import { ChatInputBar } from './ChatInputBar';
 import { FilePreviewModal } from './FilePreviewModal';
 import { MediaLightboxModal } from './MediaLightboxModal';
+import { ChatInfoDrawer } from './ChatInfoDrawer';
+import { ChatSearchBar } from './ChatSearchBar';
+import { ForwardMessageModal } from './ForwardMessageModal';
+import { StarredMessagesDrawer } from './StarredMessagesDrawer';
 import { usePresence } from '@/lib/hooks/usePresence';
 import {
   fetchChatMessages,
@@ -40,18 +44,35 @@ export function ChatArea() {
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
 
+  // Panel & pencarian ala WhatsApp
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [isStarredOpen, setIsStarredOpen] = useState(false);
+  const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+
+  // Acuan waktu untuk menyaring pesan sementara; Date.now() tidak boleh dipanggil saat render
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 10_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   // Fetch messages saat chat aktif berubah
+  const currentUserId = user?.id;
   useEffect(() => {
     if (!activeChatId) return;
 
-    if (!chats.some((c) => c.id === activeChatId) && user) {
-      fetchUserChats(user.id).then((fresh) => {
+    const currentChats = useChatStore.getState().chats;
+    if (!currentChats.some((c) => c.id === activeChatId) && currentUserId) {
+      fetchUserChats(currentUserId).then((fresh) => {
         setChats(fresh);
       });
     }
 
     const loadMessages = async () => {
-      const msgs = await fetchChatMessages(activeChatId);
+      const msgs = await fetchChatMessages(activeChatId, currentUserId);
       setMessages(activeChatId, msgs);
     };
 
@@ -68,7 +89,7 @@ export function ChatArea() {
     });
 
     return () => unsubscribe();
-  }, [activeChatId, setMessages, user, chats, setChats]);
+  }, [activeChatId, setMessages, setChats, currentUserId]);
 
   // Handler kirim file dengan keterangan (caption) dari modal preview
   const handleSendMediaWithCaption = async (
@@ -104,7 +125,8 @@ export function ChatArea() {
           } else {
             setUploadStatus('Mengunggah ke penyimpanan...');
           }
-        }
+        },
+        user.id
       );
       playMessageSentSound();
 
@@ -211,7 +233,29 @@ export function ChatArea() {
     );
   }
 
-  const currentMessages = messages[activeChatId] || [];
+  const ttlSeconds = activeChat.disappearing_seconds || 0;
+  const currentMessages = (messages[activeChatId] || []).filter(
+    (message) =>
+      ttlSeconds === 0 ||
+      now - new Date(message.created_at).getTime() < ttlSeconds * 1000
+  );
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const searchResults = normalizedQuery
+    ? currentMessages.filter(
+        (msg) =>
+          !msg.is_deleted_for_all &&
+          ((msg.content || '').toLowerCase().includes(normalizedQuery) ||
+            (msg.media_name || '').toLowerCase().includes(normalizedQuery))
+      )
+    : [];
+  const isFiltering = isSearchOpen && normalizedQuery.length > 0;
+  const visibleMessages = isFiltering ? searchResults : currentMessages;
+  const safeSearchIndex = searchResults.length
+    ? Math.min(searchIndex, searchResults.length - 1)
+    : 0;
+  const activeMessageId = isFiltering && searchResults.length
+    ? searchResults[safeSearchIndex].id
+    : null;
 
   return (
     <main
@@ -222,8 +266,8 @@ export function ChatArea() {
     >
       {/* WhatsApp Drag & Drop Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-[#0c1317]/85 backdrop-blur-sm border-4 border-dashed border-[#00a884] flex flex-col items-center justify-center p-6 text-white text-center pointer-events-none animate-in fade-in zoom-in-95 duration-150">
-          <div className="w-20 h-20 rounded-full bg-[#00a884]/20 border border-[#00a884]/40 flex items-center justify-center text-[#00a884] mb-4 shadow-2xl animate-bounce">
+        <div className="absolute inset-0 z-50 bg-[#0c0a14]/85 backdrop-blur-sm border-4 border-dashed border-[#8b5cf6] flex flex-col items-center justify-center p-6 text-white text-center pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-20 h-20 rounded-full bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 flex items-center justify-center text-[#a78bfa] mb-4 shadow-2xl animate-bounce">
             <UploadCloud size={42} />
           </div>
           <h3 className="text-xl font-bold tracking-wide">Lepaskan file di sini untuk mengirim</h3>
@@ -234,10 +278,54 @@ export function ChatArea() {
       )}
 
       {/* Header */}
-      <ChatHeader chat={activeChat} onBack={() => setActiveChatId(null)} />
+      <ChatHeader
+        chat={activeChat}
+        onBack={() => setActiveChatId(null)}
+        onOpenInfo={() => setIsInfoOpen(true)}
+        onToggleSearch={() => {
+          setIsSearchOpen((prev) => !prev);
+          setSearchQuery('');
+          setSearchIndex(0);
+        }}
+        onOpenStarred={() => setIsStarredOpen(true)}
+      />
+
+      {isSearchOpen && (
+        <ChatSearchBar
+          query={searchQuery}
+          onChange={(value) => {
+            setSearchQuery(value);
+            setSearchIndex(0);
+          }}
+          onClose={() => {
+            setIsSearchOpen(false);
+            setSearchQuery('');
+          }}
+          resultCount={searchResults.length}
+          activeIndex={safeSearchIndex}
+          onNext={() =>
+            setSearchIndex((prev) =>
+              searchResults.length ? (prev + 1) % searchResults.length : 0
+            )
+          }
+          onPrev={() =>
+            setSearchIndex((prev) =>
+              searchResults.length
+                ? (prev - 1 + searchResults.length) % searchResults.length
+                : 0
+            )
+          }
+        />
+      )}
 
       {/* Message Canvas */}
-      <MessageList messages={currentMessages} isGroup={activeChat.is_group} />
+      <MessageList
+        messages={visibleMessages}
+        isGroup={activeChat.is_group}
+        searchQuery={isSearchOpen ? searchQuery : ''}
+        activeMessageId={activeMessageId}
+        onForward={(msg) => setForwardMessage(msg)}
+      />
 
       {/* Input Bar */}
       <ChatInputBar
@@ -248,6 +336,11 @@ export function ChatArea() {
 
       {/* WhatsApp Media Preview & Caption Modal */}
       <FilePreviewModal
+        key={
+          previewFile
+            ? `${previewFile.file.name}-${previewFile.file.size}-${previewFile.file.lastModified}`
+            : 'empty'
+        }
         isOpen={Boolean(previewFile)}
         file={previewFile?.file || null}
         fileType={previewFile?.type || 'document'}
@@ -259,6 +352,33 @@ export function ChatArea() {
 
       {/* WhatsApp Fullscreen Media Lightbox Viewer */}
       <MediaLightboxModal />
+
+      {/* Panel info kontak/grup */}
+      {isInfoOpen && (
+        <ChatInfoDrawer
+          chat={activeChat}
+          isOpen
+          onClose={() => setIsInfoOpen(false)}
+          onOpenStarred={() => setIsStarredOpen(true)}
+          onOpenSearch={() => setIsSearchOpen(true)}
+        />
+      )}
+
+      {/* Daftar pesan berbintang */}
+      <StarredMessagesDrawer
+        chatId={activeChat.id}
+        isOpen={isStarredOpen}
+        onClose={() => setIsStarredOpen(false)}
+      />
+
+      {/* Teruskan pesan */}
+      {forwardMessage && (
+        <ForwardMessageModal
+          isOpen
+          message={forwardMessage}
+          onClose={() => setForwardMessage(null)}
+        />
+      )}
     </main>
   );
 }

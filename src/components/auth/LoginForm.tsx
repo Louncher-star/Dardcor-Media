@@ -9,9 +9,9 @@ import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Profile } from '@/types';
 import {
   setAuthCookie,
-  getRegisteredUsers,
-  saveRegisteredUser,
+  verifyLocalAccount,
   setStoredCurrentUser,
+  saveRegisteredUser,
 } from '@/lib/services/authService';
 
 export function LoginForm() {
@@ -41,9 +41,8 @@ export function LoginForm() {
           password,
         });
 
-        if (!error && data.user) {
+        if (!error && data?.user) {
           let profile: Profile | null = null;
-
           const { data: dbProfile } = await supabase
             .from('profiles')
             .select('*')
@@ -53,7 +52,6 @@ export function LoginForm() {
           if (dbProfile) {
             profile = dbProfile as Profile;
           } else {
-            // Jika belum ada di tabel profiles, buat langsung
             const meta = data.user.user_metadata || {};
             profile = {
               id: data.user.id,
@@ -67,6 +65,7 @@ export function LoginForm() {
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             };
+
             await supabase.from('profiles').upsert(profile);
           }
 
@@ -76,22 +75,24 @@ export function LoginForm() {
           saveRegisteredUser({ ...profile, email: cleanEmail, password });
 
           setIsLoading(false);
-          router.push('/media');
+          router.push('/chat');
           router.refresh();
           return;
         }
 
-        // 1b. Jika Supabase Auth terkendala (unconfirmed email/rate limit), verifikasi langsung ke database cloud
-        const { data: matchedProfile } = await supabase
+        // 1b. Fallback: Jika Supabase Auth mengembalikan error (misal email_not_confirmed atau rate limit),
+        // verifikasi kredensial langsung terhadap tabel public.profiles di database cloud
+        const { data: matchedProfile, error: profileErr } = await supabase
           .from('profiles')
           .select('*')
           .or(`email.ilike.${cleanEmail},username.ilike.${cleanEmail}`)
           .maybeSingle();
 
         if (
+          !profileErr &&
           matchedProfile &&
-          (matchedProfile.phone_number === password ||
-            matchedProfile.password === password)
+          (matchedProfile.password === password ||
+            matchedProfile.phone_number === password)
         ) {
           const profile = matchedProfile as Profile;
           setAuthCookie(profile.id);
@@ -100,27 +101,24 @@ export function LoginForm() {
           saveRegisteredUser({ ...profile, email: cleanEmail, password });
 
           setIsLoading(false);
-          router.push('/media');
+          router.push('/chat');
           router.refresh();
           return;
         }
-      } catch (err: unknown) {
-        console.error('Supabase login error, checking fallback:', err);
+      } catch (err) {
+        console.warn('Supabase login error, checking fallback:', err);
       }
     }
 
-    // 2. Cek terhadap akun terdaftar (Local Session Fallback)
-    const users = getRegisteredUsers();
-    const found = users.find(
-      (u) => u.email.toLowerCase() === cleanEmail && u.password === password
-    );
+    // 2. Mode lokal/demo: password diverifikasi terhadap hash PBKDF2.
+    const found = await verifyLocalAccount(cleanEmail, password);
 
     if (found) {
       setAuthCookie(found.id);
       setStoredCurrentUser(found);
       setUser(found);
       setIsLoading(false);
-      router.push('/media');
+      router.push('/chat');
       router.refresh();
       return;
     }

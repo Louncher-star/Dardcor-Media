@@ -89,23 +89,27 @@ export function usePresence(activeChatId: string | null) {
       if (!channelRef.current || !user || !activeChatId) return;
 
       try {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'typing',
-          payload: {
-            chatId: activeChatId,
-            userId: user.id,
-            name: user.display_name || user.username,
-            isTyping,
-          },
-        });
+        const broadcastTyping = (typing: boolean) => {
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: {
+              chatId: activeChatId,
+              userId: user.id,
+              name: user.display_name || user.username,
+              isTyping: typing,
+            },
+          });
+        };
+
+        broadcastTyping(isTyping);
 
         if (isTyping) {
           if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
           }
           typingTimeoutRef.current = setTimeout(() => {
-            sendTypingSignal(false);
+            broadcastTyping(false);
           }, 2500);
         }
       } catch (err) {

@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dardcor Media
 
-## Getting Started
+Aplikasi pesan instan real-time bergaya WhatsApp dengan aksen ungu, dibangun memakai Next.js 16, React 19, Tailwind CSS 4, Zustand, dan Supabase.
 
-First, run the development server:
+## Fitur
+
+- Obrolan pribadi dan grup dengan pengiriman pesan real-time
+- Foto, video, dokumen apa pun, dan pesan suara
+- Balas pesan, reaksi emoji, hapus untuk saya/semua, teruskan, dan pesan berbintang
+- Centang terkirim/dibaca, indikator sedang mengetik, dan status online
+- Kelola obrolan: sematkan, bisukan, arsipkan, tandai belum dibaca, bersihkan, hapus
+- Pencarian dalam obrolan dan panel info kontak/grup
+- Status 24 jam dengan teks atau foto
+- Tema terang/gelap, pengaturan profil, dan unggah avatar
+- PWA yang dapat dipasang di Android, iOS, tablet, dan desktop
+
+## Menjalankan
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Buka [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Jalankan seluruh isi `database.sql` di Supabase SQL Editor. Skrip tersebut membuat tabel, kebijakan RLS, bucket storage, dan replikasi realtime yang dibutuhkan aplikasi.
 
-## Learn More
+## Variabel lingkungan
 
-To learn more about Next.js, take a look at the following resources:
+Salin `.env.example` menjadi `.env.local`, lalu isi kredensial Supabase:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Tanpa Supabase, aplikasi tetap dapat dipakai dalam mode lokal memakai `localStorage`.
 
-## Deploy on Vercel
+## Build
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build
+npm run start
+```

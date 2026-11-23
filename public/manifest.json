@@ -1,25 +1,42 @@
 {
-  "name": "Dardcor Media - Modern Chat & Communication",
-  "short_name": "Dardcor Media",
-  "description": "Aplikasi pesan instan modern, cepat, aman, dan berkelas futuristik bernuansa ungu.",
+  "id": "/chat",
+  "name": "Dardcor Media - Pesan Instan",
+  "short_name": "Dardcor",
+  "description": "Aplikasi pesan instan modern: obrolan, grup, media, pesan suara, dan status 24 jam.",
   "start_url": "/chat",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#0f0d19",
   "theme_color": "#7c3aed",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "scope": "/",
+  "lang": "id",
+  "dir": "ltr",
+  "categories": ["social", "communication"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon.svg",
@@ -30,8 +47,8 @@
   "shortcuts": [
     {
       "name": "Buka Obrolan",
-      "short_name": "Chat",
-      "description": "Buka ruang obrolan Anda",
+      "short_name": "Obrolan",
+      "description": "Buka daftar obrolan Anda",
       "url": "/chat",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }

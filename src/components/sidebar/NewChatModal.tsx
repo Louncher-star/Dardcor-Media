@@ -7,7 +7,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
-import { fetchCloudProfiles, saveRegisteredUserToCloud } from '@/lib/services/authService';
+import { fetchCloudProfiles } from '@/lib/services/authService';
 import { fetchUserChats, saveUserChats, broadcastLocalSync } from '@/lib/services/chatService';
 import { toValidUuid } from '@/lib/utils/uuidUtils';
 
@@ -168,10 +168,6 @@ export function NewChatModal({ isOpen, onClose, onOpenNewGroup }: NewChatModalPr
       // 3. Simpan obrolan baru ke Supabase Cloud Database secara realtime
       if (isSupabaseConfigured()) {
         const supabase = createClient();
-
-        // Pastikan kedua profil ada di Supabase Cloud Database
-        await saveRegisteredUserToCloud(user);
-        await saveRegisteredUserToCloud(targetUser);
 
         const { data: newChatData, error: chatError } = await supabase
           .from('chats')

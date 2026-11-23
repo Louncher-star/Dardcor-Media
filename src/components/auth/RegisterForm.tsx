@@ -10,12 +10,14 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Profile } from '@/types';
 import {
   setAuthCookie,
+  saveLocalAccount,
   saveRegisteredUser,
   saveRegisteredUserToCloud,
   setStoredCurrentUser,
   getRegisteredUsers,
 } from '@/lib/services/authService';
 import { toValidUuid } from '@/lib/utils/uuidUtils';
+import { isStrongPassword, normalizeUsername } from '@/lib/security/sanitize';
 
 const AVATAR_PRESETS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -45,7 +47,7 @@ export function RegisterForm() {
     setErrorMessage(null);
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const cleanUsername = normalizeUsername(username);
 
     if (!cleanUsername || cleanUsername.length < 3) {
       setErrorMessage('Username minimal 3 karakter (hanya huruf, angka, dan garis bawah).');
@@ -53,28 +55,31 @@ export function RegisterForm() {
       return;
     }
 
+    if (!isStrongPassword(password)) {
+      setErrorMessage('Kata sandi minimal 8 karakter dan harus berisi huruf serta angka.');
+      setIsLoading(false);
+      return;
+    }
+
     // Default ID berupa valid UUID untuk PostgreSQL
     let assignedId = toValidUuid();
 
-    // 1. Jika Supabase dikonfigurasi
+    // 1. Mode produksi: akun dibuat lewat Supabase Auth.
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient();
 
-        // Cek apakah username sudah dipakai
-        const { data: existingUser } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('username', cleanUsername)
-          .maybeSingle();
+        // Cek ketersediaan username lewat fungsi SECURITY DEFINER (tanpa membuka tabel profiles).
+        const { data: usernameAvailable } = await supabase.rpc('username_available', {
+          p_username: cleanUsername,
+        });
 
-        if (existingUser) {
+        if (usernameAvailable === false) {
           setErrorMessage(`Username @${cleanUsername} sudah dipakai. Silakan gunakan username lain.`);
           setIsLoading(false);
           return;
         }
 
-        // Daftar ke Supabase Auth
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
@@ -89,35 +94,60 @@ export function RegisterForm() {
         });
 
         if (error) {
-          console.warn('Supabase auth.signUp note:', error.message);
-          // Jika error adalah Database error trigger atau rate limit, lanjutkan menyimpan profil ke tabel database
-          if (
-            !error.message?.includes('Database error') &&
-            !error.message?.includes('saving new user') &&
-            !error.message?.includes('rate limit') &&
-            !error.message?.includes('already registered')
-          ) {
-            setErrorMessage(error.message);
-            setIsLoading(false);
-            return;
-          }
+          const message = error.message?.toLowerCase().includes('already registered')
+            ? 'Email tersebut sudah terdaftar. Silakan masuk.'
+            : error.message;
+          setErrorMessage(message);
+          setIsLoading(false);
+          return;
         }
 
         if (data?.user?.id) {
           assignedId = data.user.id;
         }
 
-        // Coba login untuk session token
-        await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
-      } catch (err) {
-        console.error('Supabase registration error:', err);
+        const newProfile: Profile = {
+          id: assignedId,
+          username: cleanUsername,
+          display_name: displayName.trim(),
+          avatar_url: selectedAvatar,
+          about: about.trim() || 'Ada! Menggunakan Dardcor Media.',
+          is_online: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        // Simpan profil ke cloud database
+        await saveRegisteredUserToCloud(newProfile, cleanEmail, password);
+        saveRegisteredUser({ ...newProfile, email: cleanEmail, password });
+
+        setStoredCurrentUser(newProfile);
+        setAuthCookie(newProfile.id);
+        setUser(newProfile);
+        setIsLoading(false);
+        router.push('/chat');
+        router.refresh();
+        return;
+      } catch {
+        setErrorMessage('Tidak dapat terhubung ke server autentikasi. Coba lagi.');
+        setIsLoading(false);
+        return;
       }
     }
 
-    // 2. Siapkan Objek Profil Riil
+    // 2. Mode lokal/demo: password disimpan sebagai hash PBKDF2.
+    const localUsers = getRegisteredUsers();
+    if (localUsers.some((user) => user.email.toLowerCase() === cleanEmail)) {
+      setErrorMessage('Email tersebut sudah terdaftar di perangkat ini. Silakan masuk.');
+      setIsLoading(false);
+      return;
+    }
+    if (localUsers.some((user) => user.username.toLowerCase() === cleanUsername)) {
+      setErrorMessage(`Username @${cleanUsername} sudah dipakai.`);
+      setIsLoading(false);
+      return;
+    }
+
     const newProfile: Profile = {
       id: assignedId,
       username: cleanUsername,
@@ -129,17 +159,13 @@ export function RegisterForm() {
       updated_at: new Date().toISOString(),
     };
 
-    // 3. Simpan data profil realtime ke database Supabase Cloud
-    await saveRegisteredUserToCloud(newProfile, cleanEmail, password);
-
-    // Simpan ke sesi lokal browser saat ini
-    saveRegisteredUser({ ...newProfile, email: cleanEmail, password });
+    await saveLocalAccount(newProfile, cleanEmail, password);
     setStoredCurrentUser(newProfile);
     setAuthCookie(newProfile.id);
     setUser(newProfile);
 
     setIsLoading(false);
-    router.push('/media');
+    router.push('/chat');
     router.refresh();
   };
 
@@ -254,10 +280,10 @@ export function RegisterForm() {
             <input
               type={showPassword ? 'text' : 'password'}
               required
-              minLength={6}
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimal 6 karakter"
+              placeholder="Minimal 8 karakter (huruf + angka)"
               className="w-full pl-10 pr-10 py-2.5 bg-[#120f1f] border border-purple-500/25 rounded-xl text-white placeholder:text-purple-300/40 text-sm focus:outline-none focus:border-[#8b5cf6] focus:ring-1 focus:ring-[#8b5cf6] transition"
             />
             <button

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Smile, Plus, Send, Mic, X } from 'lucide-react';
+import { Ban, Smile, Plus, Send, Mic, X } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { useAudioRecorder } from '@/lib/hooks/useAudioRecorder';
@@ -27,9 +27,12 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
     addMessage,
     chats,
     theme,
+    blockedUserIds,
+    drafts,
+    setDraft,
   } = useChatStore();
 
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => drafts[chatId] || '');
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -40,6 +43,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
 
   const currentChat = chats.find((c) => c.id === chatId);
   const otherUserId = currentChat?.other_participant?.id;
+  const isBlocked = Boolean(otherUserId && blockedUserIds.includes(otherUserId));
 
   const {
     isRecording,
@@ -78,6 +82,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
     if (!content || !user) return;
 
     setText('');
+    setDraft(chatId, '');
     onSendTyping(false);
     playMessageSentSound();
 
@@ -112,8 +117,10 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
-    onSendTyping(e.target.value.length > 0);
+    const value = e.target.value;
+    setText(value);
+    setDraft(chatId, value);
+    onSendTyping(value.length > 0);
   };
 
   const handleEmojiClick = (emojiData: { emoji: string }) => {
@@ -139,7 +146,13 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
         document: 'documents' as const,
       };
 
-      const { url } = await uploadChatMedia(file, file.name, folderMap[type] || 'documents');
+      const { url } = await uploadChatMedia(
+        file,
+        file.name,
+        folderMap[type] || 'documents',
+        undefined,
+        user.id
+      );
       playMessageSentSound();
 
       const mediaMsgId =
@@ -187,7 +200,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
 
     try {
       const fileName = `voice_${Date.now()}.webm`;
-      const { url } = await uploadChatMedia(blob, fileName, 'audios');
+      const { url } = await uploadChatMedia(blob, fileName, 'audios', undefined, user.id);
       playMessageSentSound();
 
       const voiceMsgId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
@@ -216,8 +229,21 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
     }
   };
 
+  if (isBlocked) {
+    return (
+      <footer className="bg-[var(--wa-header-bg)] border-t border-[var(--wa-border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shrink-0 z-20">
+        <div className="flex items-center justify-center gap-2 text-xs text-[var(--wa-text-secondary)] text-center">
+          <Ban size={15} className="text-red-400 shrink-0" />
+          <span>
+            Anda memblokir kontak ini. Buka blokir di Info Kontak untuk dapat mengirim pesan.
+          </span>
+        </div>
+      </footer>
+    );
+  }
+
   return (
-    <footer className="bg-[var(--wa-header-bg)] border-t border-[var(--wa-border)] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] relative shrink-0 z-20">
+    <footer className="bg-[var(--wa-header-bg)] px-2 md:px-4 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] relative shrink-0 z-20">
       {/* Quoted Message Banner */}
       {replyingToMessage && (
         <div className="mb-2 p-2 bg-[var(--wa-bg-sidebar)] border-l-4 border-[#8b5cf6] rounded flex items-center justify-between shadow-sm">
@@ -248,7 +274,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
           isUploading={isUploadingMedia}
         />
       ) : (
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-1 md:gap-1.5">
           {/* Emoji Picker Button */}
           <div className="relative" ref={emojiPickerRef}>
             <button
@@ -258,9 +284,10 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
                 setIsEmojiPickerOpen(!isEmojiPickerOpen);
               }}
               title="Emoji"
-              className="p-2.5 text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition"
+              aria-label="Emoji"
+              className="w-10 h-10 flex items-center justify-center text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition"
             >
-              <Smile size={22} />
+              <Smile size={24} />
             </button>
 
             {isEmojiPickerOpen && (
@@ -287,9 +314,10 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
                 setIsAttachmentOpen((prev) => !prev);
               }}
               title="Lampiran"
-              className="p-2.5 text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition"
+              aria-label="Lampiran"
+              className="w-10 h-10 flex items-center justify-center text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition"
             >
-              <Plus size={22} className={isAttachmentOpen ? 'rotate-45 transition-transform' : 'transition-transform'} />
+              <Plus size={24} className={isAttachmentOpen ? 'rotate-45 transition-transform' : 'transition-transform'} />
             </button>
 
             <AttachmentMenu
@@ -300,7 +328,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
           </div>
 
           {/* Text Input Area */}
-          <div className="flex-1 min-w-0 bg-[var(--wa-bg-sidebar)] rounded-lg border border-[var(--wa-border)] flex items-center px-3 py-1">
+          <div className="flex-1 min-w-0 bg-[var(--wa-bg-sidebar)] rounded-lg flex items-center px-3 py-1 min-h-[40px]">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -308,7 +336,8 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
               onChange={handleTextChange}
               onKeyDown={handleKeyDown}
               placeholder="Ketik pesan"
-              className="w-full bg-transparent text-sm text-[var(--wa-text-primary)] placeholder:text-[var(--wa-text-secondary)]/70 resize-none focus:outline-none max-h-32 py-1.5 leading-5"
+              aria-label="Ketik pesan"
+              className="wa-composer-input w-full bg-transparent text-[14.5px] text-[var(--wa-text-primary)] placeholder:text-[var(--wa-text-secondary)] resize-none focus:outline-none max-h-28 py-2 leading-5"
             />
           </div>
 
@@ -318,18 +347,20 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
               type="button"
               onClick={handleSendTextMessage}
               title="Kirim"
-              className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#7c3aed] to-[#9333ea] hover:from-[#8b5cf6] hover:to-[#7c3aed] text-white flex items-center justify-center shadow-md shadow-purple-900/30 transition shrink-0"
+              aria-label="Kirim pesan"
+              className="w-10 h-10 rounded-full bg-[var(--wa-teal)] hover:bg-[var(--wa-teal-hover)] text-white flex items-center justify-center shadow-sm transition shrink-0"
             >
-              <Send size={18} />
+              <Send size={19} />
             </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
-              title="Rekam Pesan Suara"
-              className="p-2.5 text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition shrink-0"
+              title="Rekam pesan suara"
+              aria-label="Rekam pesan suara"
+              className="w-10 h-10 flex items-center justify-center text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] rounded-full hover:bg-[var(--wa-hover)] transition shrink-0"
             >
-              <Mic size={22} />
+              <Mic size={23} />
             </button>
           )}
         </div>

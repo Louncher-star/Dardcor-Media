@@ -27,17 +27,12 @@ export function MediaLightboxModal() {
   const { user } = useAuthStore();
   const { activeChatId, messages, lightboxMessage, setLightboxMessage } = useChatStore();
 
-  const [mounted, setMounted] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Kumpulkan semua file foto dan video dalam obrolan aktif untuk navigasi carousel
   const mediaList = useMemo(() => {
@@ -65,10 +60,16 @@ export function MediaLightboxModal() {
     setPan({ x: 0, y: 0 });
   }, []);
 
-  // Reset transform saat berganti gambar
-  useEffect(() => {
-    resetTransform();
-  }, [lightboxMessage?.id, resetTransform]);
+  // Reset transform saat berganti gambar (pola penyesuaian state saat render).
+  const [transformForMediaId, setTransformForMediaId] = useState<string | null>(
+    lightboxMessage?.id ?? null
+  );
+  if ((lightboxMessage?.id ?? null) !== transformForMediaId) {
+    setTransformForMediaId(lightboxMessage?.id ?? null);
+    setZoom(1);
+    setRotation(0);
+    setPan({ x: 0, y: 0 });
+  }
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex !== -1 && currentIndex < mediaList.length - 1;
@@ -170,7 +171,7 @@ export function MediaLightboxModal() {
     }
   };
 
-  if (!mounted || !lightboxMessage || !currentMedia) return null;
+  if (!lightboxMessage || !currentMedia) return null;
 
   const isMe = user?.id === currentMedia.sender_id;
   const senderName = isMe

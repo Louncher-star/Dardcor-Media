@@ -66,6 +66,9 @@ ALTER TABLE public.chats DROP CONSTRAINT IF EXISTS chats_created_by_fkey;
 
 CREATE INDEX IF NOT EXISTS idx_chats_last_message_at ON public.chats(last_message_at DESC);
 
+-- Pesan sementara (hilang otomatis). 0 = nonaktif.
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS disappearing_seconds INTEGER DEFAULT 0;
+
 -- 5. CHAT PARTICIPANTS TABLE
 CREATE TABLE IF NOT EXISTS public.chat_participants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -126,6 +129,38 @@ CREATE TABLE IF NOT EXISTS public.message_deleted_for_users (
     UNIQUE(message_id, user_id)
 );
 
+-- 7b. PESAN BERBINTANG (PER PENGGUNA)
+CREATE TABLE IF NOT EXISTS public.starred_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(message_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_starred_messages_user ON public.starred_messages(user_id);
+
+-- 7c. KONTAK DIBLOKIR
+CREATE TABLE IF NOT EXISTS public.blocked_users (
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    blocked_user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (user_id, blocked_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_users_user ON public.blocked_users(user_id);
+
+ALTER TABLE public.starred_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view starred messages" ON public.starred_messages;
+CREATE POLICY "Anyone can view starred messages" ON public.starred_messages FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Anyone can insert starred messages" ON public.starred_messages;
+CREATE POLICY "Anyone can insert starred messages" ON public.starred_messages FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can delete starred messages" ON public.starred_messages;
+CREATE POLICY "Anyone can delete starred messages" ON public.starred_messages FOR DELETE USING (true);
+
 -- 8. MESSAGE REACTIONS
 CREATE TABLE IF NOT EXISTS public.message_reactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -150,6 +185,17 @@ CREATE TABLE IF NOT EXISTS public.message_statuses (
 
 CREATE INDEX IF NOT EXISTS idx_message_statuses_message_user ON public.message_statuses(message_id, user_id);
 
+ALTER TABLE public.message_deleted_for_users ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view hidden messages" ON public.message_deleted_for_users;
+CREATE POLICY "Anyone can view hidden messages" ON public.message_deleted_for_users FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Anyone can hide messages" ON public.message_deleted_for_users;
+CREATE POLICY "Anyone can hide messages" ON public.message_deleted_for_users FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can unhide messages" ON public.message_deleted_for_users;
+CREATE POLICY "Anyone can unhide messages" ON public.message_deleted_for_users FOR DELETE USING (true);
+
 -- 10. USER STORIES / STATUS (24 Jam)
 CREATE TABLE IF NOT EXISTS public.user_statuses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -165,9 +211,13 @@ CREATE TABLE IF NOT EXISTS public.user_statuses (
 -- HELPER FUNCTIONS & TRIGGERS
 -- ============================================================================
 
--- Tambahkan kolom email dan password jika belum ada
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password TEXT;
+-- Keamanan: hapus kolom email/password lama dari tabel profil.
+-- Password TIDAK BOLEH pernah disimpan di tabel yang dapat dibaca klien.
+ALTER TABLE public.profiles DROP COLUMN IF EXISTS password;
+ALTER TABLE public.profiles DROP COLUMN IF EXISTS email;
+
+-- Versi lama aplikasi menyimpan password di kolom phone_number. Bersihkan.
+UPDATE public.profiles SET phone_number = NULL WHERE phone_number IS NOT NULL;
 
 -- Function: Otomatis Buat Profil saat Sign Up di Supabase Auth (Aman & Tidak Pernah Crash)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -186,18 +236,16 @@ BEGIN
         default_username := clean_username;
     END IF;
 
-    INSERT INTO public.profiles (id, username, display_name, avatar_url, about, email)
+    INSERT INTO public.profiles (id, username, display_name, avatar_url, about)
     VALUES (
         new.id,
         default_username,
         default_name,
         COALESCE(new.raw_user_meta_data->>'avatar_url', 'https://api.dicebear.com/7.x/bottts/svg?seed=' || new.id::text),
-        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.'),
-        new.email
+        COALESCE(new.raw_user_meta_data->>'about', 'Ada! Menggunakan Dardcor Media.')
     )
     ON CONFLICT (id) DO UPDATE
     SET display_name = EXCLUDED.display_name,
-        email = COALESCE(EXCLUDED.email, public.profiles.email),
         avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url);
 
     RETURN NEW;
@@ -230,8 +278,10 @@ CREATE TRIGGER on_message_created
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_message();
 
 -- ============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES TERBUKA (MULTI-DEVICE & VERCEL REALTIME)
+-- ROW LEVEL SECURITY (RLS) — AKSES HANYA UNTUK PENGGUNA YANG BERHAK
 -- ============================================================================
+-- Setiap kebijakan memakai auth.uid() dari sesi Supabase Auth.
+-- Anon key tidak lagi bisa membaca atau menulis data obrolan siapa pun.
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
@@ -240,86 +290,320 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.message_reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.message_statuses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_statuses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.starred_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.message_deleted_for_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
 
--- Profiles: Semua pengguna dapat melihat dan mendaftarkan profil
+-- ----------------------------------------------------------------------------
+-- Helper SECURITY DEFINER: mencegah rekursi RLS antar tabel
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_chat_member(p_chat_id UUID, p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.chat_participants
+        WHERE chat_id = p_chat_id AND user_id = p_user_id
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_chat_admin(p_chat_id UUID, p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.chat_participants
+        WHERE chat_id = p_chat_id AND user_id = p_user_id AND role = 'admin'
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_message(p_message_id UUID, p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.messages m
+        JOIN public.chat_participants cp ON cp.chat_id = m.chat_id
+        JOIN public.chats c ON c.id = m.chat_id
+        WHERE m.id = p_message_id
+          AND cp.user_id = p_user_id
+          AND (
+              COALESCE(c.disappearing_seconds, 0) = 0
+              OR m.created_at > now() - make_interval(secs => c.disappearing_seconds)
+          )
+    );
+$;
+
+REVOKE ALL ON FUNCTION public.is_chat_member(UUID, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_chat_admin(UUID, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_access_message(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_chat_member(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_chat_admin(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_access_message(UUID, UUID) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Hapus seluruh kebijakan lama yang terbuka
+-- ----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON public.profiles;
 DROP POLICY IF EXISTS "Anyone can view profiles" ON public.profiles;
-CREATE POLICY "Anyone can view profiles" ON public.profiles FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Anyone can insert profiles" ON public.profiles;
-CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Anyone can update profiles" ON public.profiles;
-CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);
 
--- Chats: Semua percakapan dapat diakses dan dibuat antar perangkat
 DROP POLICY IF EXISTS "Users can view chats they participate in" ON public.chats;
 DROP POLICY IF EXISTS "Anyone can view chats" ON public.chats;
-CREATE POLICY "Anyone can view chats" ON public.chats FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Users can create chats" ON public.chats;
 DROP POLICY IF EXISTS "Anyone can create chats" ON public.chats;
-CREATE POLICY "Anyone can create chats" ON public.chats FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Chat participants can update chat info" ON public.chats;
 DROP POLICY IF EXISTS "Anyone can update chats" ON public.chats;
-CREATE POLICY "Anyone can update chats" ON public.chats FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Anyone can delete chats" ON public.chats;
-CREATE POLICY "Anyone can delete chats" ON public.chats FOR DELETE USING (true);
 
--- Chat Participants:
 DROP POLICY IF EXISTS "Users can view participants of their chats" ON public.chat_participants;
 DROP POLICY IF EXISTS "Anyone can view chat participants" ON public.chat_participants;
-CREATE POLICY "Anyone can view chat participants" ON public.chat_participants FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Users can join or be added to chats" ON public.chat_participants;
 DROP POLICY IF EXISTS "Anyone can add chat participants" ON public.chat_participants;
-CREATE POLICY "Anyone can add chat participants" ON public.chat_participants FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Anyone can delete chat participants" ON public.chat_participants;
-CREATE POLICY "Anyone can delete chat participants" ON public.chat_participants FOR DELETE USING (true);
 
--- Messages:
 DROP POLICY IF EXISTS "Users can view messages in their chats" ON public.messages;
 DROP POLICY IF EXISTS "Anyone can view messages" ON public.messages;
-CREATE POLICY "Anyone can view messages" ON public.messages FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Users can send messages to their chats" ON public.messages;
 DROP POLICY IF EXISTS "Anyone can send messages" ON public.messages;
-CREATE POLICY "Anyone can send messages" ON public.messages FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Anyone can delete messages" ON public.messages;
-CREATE POLICY "Anyone can delete messages" ON public.messages FOR DELETE USING (true);
 
--- Reactions & Statuses:
 DROP POLICY IF EXISTS "Anyone can view reactions" ON public.message_reactions;
-CREATE POLICY "Anyone can view reactions" ON public.message_reactions FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Anyone can insert reactions" ON public.message_reactions;
-CREATE POLICY "Anyone can insert reactions" ON public.message_reactions FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Anyone can delete reactions" ON public.message_reactions;
-CREATE POLICY "Anyone can delete reactions" ON public.message_reactions FOR DELETE USING (true);
 
 DROP POLICY IF EXISTS "Anyone can view statuses" ON public.message_statuses;
-CREATE POLICY "Anyone can view statuses" ON public.message_statuses FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Anyone can insert statuses" ON public.message_statuses;
-CREATE POLICY "Anyone can insert statuses" ON public.message_statuses FOR INSERT WITH CHECK (true);
-
+DROP POLICY IF EXISTS "Anyone can update statuses" ON public.message_statuses;
 DROP POLICY IF EXISTS "Anyone can delete statuses" ON public.message_statuses;
-CREATE POLICY "Anyone can delete statuses" ON public.message_statuses FOR DELETE USING (true);
 
 DROP POLICY IF EXISTS "Anyone can view stories" ON public.user_statuses;
-CREATE POLICY "Anyone can view stories" ON public.user_statuses FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Anyone can insert stories" ON public.user_statuses;
-CREATE POLICY "Anyone can insert stories" ON public.user_statuses FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Anyone can delete stories" ON public.user_statuses;
-CREATE POLICY "Anyone can delete stories" ON public.user_statuses FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Anyone can view starred messages" ON public.starred_messages;
+DROP POLICY IF EXISTS "Anyone can insert starred messages" ON public.starred_messages;
+DROP POLICY IF EXISTS "Anyone can delete starred messages" ON public.starred_messages;
+
+DROP POLICY IF EXISTS "Anyone can view hidden messages" ON public.message_deleted_for_users;
+DROP POLICY IF EXISTS "Anyone can hide messages" ON public.message_deleted_for_users;
+DROP POLICY IF EXISTS "Anyone can unhide messages" ON public.message_deleted_for_users;
+
+-- ----------------------------------------------------------------------------
+-- PROFILES: profil publik hanya untuk pengguna login; ubah hanya milik sendiri
+-- ----------------------------------------------------------------------------
+CREATE POLICY "profiles_select_authenticated" ON public.profiles
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "profiles_insert_self" ON public.profiles
+    FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "profiles_update_self" ON public.profiles
+    FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+-- ----------------------------------------------------------------------------
+-- CHATS: hanya peserta yang bisa melihat/mengubah; pembuat harus diri sendiri
+-- ----------------------------------------------------------------------------
+CREATE POLICY "chats_select_member" ON public.chats
+    FOR SELECT TO authenticated USING (public.is_chat_member(id, auth.uid()));
+
+CREATE POLICY "chats_insert_owner" ON public.chats
+    FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL AND created_by = auth.uid());
+
+CREATE POLICY "chats_update_member" ON public.chats
+    FOR UPDATE TO authenticated
+    USING (public.is_chat_member(id, auth.uid()))
+    WITH CHECK (public.is_chat_member(id, auth.uid()));
+
+CREATE POLICY "chats_delete_member" ON public.chats
+    FOR DELETE TO authenticated USING (public.is_chat_member(id, auth.uid()));
+
+-- ----------------------------------------------------------------------------
+-- CHAT PARTICIPANTS
+-- ----------------------------------------------------------------------------
+CREATE POLICY "participants_select_member" ON public.chat_participants
+    FOR SELECT TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+
+CREATE POLICY "participants_insert_authorized" ON public.chat_participants
+    FOR INSERT TO authenticated WITH CHECK (
+        auth.uid() IS NOT NULL
+        AND (
+            user_id = auth.uid()
+            OR EXISTS (
+                SELECT 1 FROM public.chats c
+                WHERE c.id = chat_id AND c.created_by = auth.uid()
+            )
+            OR public.is_chat_admin(chat_id, auth.uid())
+        )
+    );
+
+CREATE POLICY "participants_update_self" ON public.chat_participants
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "participants_delete_self_or_admin" ON public.chat_participants
+    FOR DELETE TO authenticated
+    USING (user_id = auth.uid() OR public.is_chat_admin(chat_id, auth.uid()));
+
+-- ----------------------------------------------------------------------------
+-- MESSAGES
+-- ----------------------------------------------------------------------------
+CREATE POLICY "messages_select_member" ON public.messages
+    FOR SELECT TO authenticated USING (
+        public.is_chat_member(chat_id, auth.uid())
+        AND (
+            COALESCE(
+                (SELECT c.disappearing_seconds FROM public.chats c WHERE c.id = messages.chat_id),
+                0
+            ) = 0
+            OR messages.created_at > now() - make_interval(
+                secs => COALESCE(
+                    (SELECT c.disappearing_seconds FROM public.chats c WHERE c.id = messages.chat_id),
+                    0
+                )
+            )
+        )
+    );
+
+CREATE POLICY "messages_insert_sender" ON public.messages
+    FOR INSERT TO authenticated WITH CHECK (
+        sender_id = auth.uid()
+        AND public.is_chat_member(chat_id, auth.uid())
+        AND NOT EXISTS (
+            SELECT 1
+            FROM public.blocked_users b
+            JOIN public.chats c ON c.id = messages.chat_id AND c.is_group = false
+            JOIN public.chat_participants cp ON cp.chat_id = c.id
+            WHERE cp.user_id <> auth.uid()
+              AND (
+                  (b.user_id = auth.uid() AND b.blocked_user_id = cp.user_id)
+                  OR (b.user_id = cp.user_id AND b.blocked_user_id = auth.uid())
+              )
+        )
+    );
+
+CREATE POLICY "messages_update_sender" ON public.messages
+    FOR UPDATE TO authenticated
+    USING (sender_id = auth.uid())
+    WITH CHECK (sender_id = auth.uid());
+
+CREATE POLICY "messages_delete_sender" ON public.messages
+    FOR DELETE TO authenticated USING (sender_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- REACTIONS
+-- ----------------------------------------------------------------------------
+CREATE POLICY "reactions_select_member" ON public.message_reactions
+    FOR SELECT TO authenticated USING (public.can_access_message(message_id, auth.uid()));
+
+CREATE POLICY "reactions_insert_self" ON public.message_reactions
+    FOR INSERT TO authenticated WITH CHECK (
+        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
+    );
+
+CREATE POLICY "reactions_delete_self" ON public.message_reactions
+    FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- DELIVERY STATUSES
+-- ----------------------------------------------------------------------------
+CREATE POLICY "message_statuses_select_member" ON public.message_statuses
+    FOR SELECT TO authenticated USING (public.can_access_message(message_id, auth.uid()));
+
+CREATE POLICY "message_statuses_insert_self" ON public.message_statuses
+    FOR INSERT TO authenticated WITH CHECK (
+        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
+    );
+
+CREATE POLICY "message_statuses_update_self" ON public.message_statuses
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- PESAN DISEMBUNYIKAN & BERBINTANG (milik sendiri)
+-- ----------------------------------------------------------------------------
+CREATE POLICY "hidden_select_self" ON public.message_deleted_for_users
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "hidden_insert_self" ON public.message_deleted_for_users
+    FOR INSERT TO authenticated WITH CHECK (
+        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
+    );
+
+CREATE POLICY "hidden_delete_self" ON public.message_deleted_for_users
+    FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "starred_select_self" ON public.starred_messages
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "starred_insert_self" ON public.starred_messages
+    FOR INSERT TO authenticated WITH CHECK (
+        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
+    );
+
+CREATE POLICY "starred_delete_self" ON public.starred_messages
+    FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- STATUS 24 JAM: dibaca pengguna login, ditulis hanya oleh pemilik
+-- ----------------------------------------------------------------------------
+CREATE POLICY "statuses_select_authenticated" ON public.user_statuses
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "statuses_insert_self" ON public.user_statuses
+    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "statuses_update_self" ON public.user_statuses
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "statuses_delete_self" ON public.user_statuses
+    FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+-- ----------------------------------------------------------------------------
+-- KONTAK DIBLOKIR (milik sendiri)
+-- ----------------------------------------------------------------------------
+CREATE POLICY "blocked_select_self" ON public.blocked_users
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "blocked_insert_self" ON public.blocked_users
+    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "blocked_delete_self" ON public.blocked_users
+    FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+-- ============================================================================
+-- 10b. CEK KETERSEDIAAN USERNAME TANPA MEMBUKA TABEL PROFILES
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.username_available(p_username TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $
+    SELECT NOT EXISTS (
+        SELECT 1 FROM public.profiles WHERE lower(username) = lower(p_username)
+    );
+$;
+
+REVOKE ALL ON FUNCTION public.username_available(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.username_available(TEXT) TO anon, authenticated;
 
 -- ============================================================================
 -- 11. FUNGSI RESOLUSI OBROLAN 1-ON-1 TANPA DUPLIKASI
@@ -413,112 +697,12 @@ DO $$ BEGIN
 EXCEPTION WHEN others THEN null;
 END $$;
 
--- ============================================================================
--- 13. TIKTOK MEDIA ACCOUNTS (KHUSUS AKUN MEDIA TIKTOK TERPISAH)
--- ============================================================================
--- Tabel ini khusus menyimpan akun TikTok hasil scraping data live pengguna
--- Sistem autentikasi website Dardcor Media (profiles/chats) tetap berjalan terpisah
-CREATE TABLE IF NOT EXISTS public.tiktok_accounts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    unique_id TEXT UNIQUE NOT NULL,             -- Username TikTok (e.g. 'fuji_an', 'raffi_nagita')
-    nickname TEXT NOT NULL,                     -- Nama Tampilan TikTok
-    avatar_url TEXT NOT NULL,                   -- Foto Profil Asli TikTok (Hasil Scrape Live)
-    signature TEXT DEFAULT '',                  -- Bio Profil TikTok
-    verified BOOLEAN DEFAULT false,             -- Status Centang Biru Resmi TikTok
-    follower_count BIGINT DEFAULT 0,            -- Jumlah Pengikut Real
-    following_count BIGINT DEFAULT 0,           -- Jumlah Mengikuti Real
-    heart_count BIGINT DEFAULT 0,               -- Total Suka / Hearts Real
-    video_count INT DEFAULT 0,                  -- Total Video Real
-    sec_uid TEXT,                               -- ID Enkripsi TikTok
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    last_active_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_unique_id ON public.tiktok_accounts(unique_id);
-CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_last_active ON public.tiktok_accounts(last_active_at DESC);
-
--- RLS untuk tabel tiktok_accounts (memungkinkan pembacaan & penyimpanan akun scraping)
-ALTER TABLE public.tiktok_accounts ENABLE ROW LEVEL SECURITY;
-
 DO $$ BEGIN
-    CREATE POLICY "Allow public read access on tiktok_accounts"
-        ON public.tiktok_accounts FOR SELECT USING (true);
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE POLICY "Allow public insert and update on tiktok_accounts"
-        ON public.tiktok_accounts FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_accounts;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.user_statuses;
 EXCEPTION WHEN others THEN null;
 END $$;
 
--- ============================================================================
--- 14. TIKTOK DIRECT MESSAGES (PESAN KHUSUS ANTAR TEMAN/KREATOR TIKTOK)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS public.tiktok_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sender_handle TEXT NOT NULL,
-    receiver_handle TEXT NOT NULL,
-    message_text TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_tiktok_messages_pair ON public.tiktok_messages(sender_handle, receiver_handle);
-CREATE INDEX IF NOT EXISTS idx_tiktok_messages_created ON public.tiktok_messages(created_at ASC);
-
-ALTER TABLE public.tiktok_messages ENABLE ROW LEVEL SECURITY;
-
-DO $$ BEGIN
-    CREATE POLICY "Allow public all access on tiktok_messages"
-        ON public.tiktok_messages FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_messages;
-EXCEPTION WHEN others THEN null;
-END $$;
-
--- ============================================================================
--- 15. TIKTOK UPLOADED VIDEOS (VIDEO HASIL UNGGAH PENGGUNA)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS public.tiktok_uploaded_videos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    author_unique_id TEXT NOT NULL,
-    author_nickname TEXT NOT NULL,
-    author_avatar TEXT NOT NULL,
-    title TEXT NOT NULL,
-    video_url TEXT NOT NULL,
-    cover_url TEXT NOT NULL,
-    digg_count INT DEFAULT 0,
-    comment_count INT DEFAULT 0,
-    share_count INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_tiktok_uploaded_videos_author ON public.tiktok_uploaded_videos(author_unique_id);
-CREATE INDEX IF NOT EXISTS idx_tiktok_uploaded_videos_created ON public.tiktok_uploaded_videos(created_at DESC);
-
-ALTER TABLE public.tiktok_uploaded_videos ENABLE ROW LEVEL SECURITY;
-
-DO $$ BEGIN
-    CREATE POLICY "Allow public all access on tiktok_uploaded_videos"
-        ON public.tiktok_uploaded_videos FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.tiktok_uploaded_videos;
-EXCEPTION WHEN others THEN null;
-END $$;
-
--- ============================================================================
--- 16. STORAGE BUCKETS (chat-media & avatars) UNTUK UPLOAD FILE BEBAS ALA WHATSAPP
+-- 13. STORAGE BUCKETS (chat-media & avatars) UNTUK UPLOAD FILE BEBAS ALA WHATSAPP
 -- ============================================================================
 -- Skrip ini otomatis membuat bucket penyimpanan di Supabase Storage
 -- Mendukung upload dokumen apapun (.pdf, .docx, .zip, .apk, .xlsx, .csv, code, dll)
@@ -549,29 +733,30 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
--- Memungkinkan pengguna mengunggah file media ke 'chat-media'
-DO $$ BEGIN
-    CREATE POLICY "Public insert access on chat-media"
-        ON storage.objects FOR INSERT
-        WITH CHECK (bucket_id = 'chat-media');
+-- Unggahan media hanya untuk pengguna login dan hanya ke folder miliknya (userId/...)
+DO $ BEGIN
+    CREATE POLICY "Authenticated insert on chat-media"
+        ON storage.objects FOR INSERT TO authenticated
+        WITH CHECK (
+            bucket_id = 'chat-media'
+            AND (storage.foldername(name))[1] = auth.uid()::text
+        );
 EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+END $;
 
--- Memungkinkan pembaruan file media di 'chat-media'
-DO $$ BEGIN
-    CREATE POLICY "Public update access on chat-media"
-        ON storage.objects FOR UPDATE
-        USING (bucket_id = 'chat-media');
+DO $ BEGIN
+    CREATE POLICY "Owner update on chat-media"
+        ON storage.objects FOR UPDATE TO authenticated
+        USING (bucket_id = 'chat-media' AND owner_id = auth.uid());
 EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+END $;
 
--- Memungkinkan penghapusan file media di 'chat-media'
-DO $$ BEGIN
-    CREATE POLICY "Public delete access on chat-media"
-        ON storage.objects FOR DELETE
-        USING (bucket_id = 'chat-media');
+DO $ BEGIN
+    CREATE POLICY "Owner delete on chat-media"
+        ON storage.objects FOR DELETE TO authenticated
+        USING (bucket_id = 'chat-media' AND owner_id = auth.uid());
 EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+END $;
 
 -- 4. Kebijakan Keamanan Storage (RLS) untuk bucket 'avatars'
 DO $$ BEGIN
@@ -581,18 +766,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
-DO $$ BEGIN
-    CREATE POLICY "Public insert access on avatars"
-        ON storage.objects FOR INSERT
-        WITH CHECK (bucket_id = 'avatars');
+DO $ BEGIN
+    CREATE POLICY "Authenticated insert on avatars"
+        ON storage.objects FOR INSERT TO authenticated
+        WITH CHECK (
+            bucket_id = 'avatars'
+            AND (storage.foldername(name))[1] = auth.uid()::text
+        );
 EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+END $;
 
-DO $$ BEGIN
-    CREATE POLICY "Public update access on avatars"
-        ON storage.objects FOR UPDATE
-        USING (bucket_id = 'avatars');
+DO $ BEGIN
+    CREATE POLICY "Owner update on avatars"
+        ON storage.objects FOR UPDATE TO authenticated
+        USING (bucket_id = 'avatars' AND owner_id = auth.uid());
 EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+END $;
 
 

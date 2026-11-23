@@ -3,8 +3,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CircleDashed, MessageSquarePlus, MoreVertical, Moon, Sun, LogOut, Users, User, LogIn, Film, Menu } from 'lucide-react';
-import { Avatar } from '@/components/ui/Avatar';
+import {
+  Archive,
+  LogIn,
+  LogOut,
+  MessageSquarePlus,
+  MoreVertical,
+  Moon,
+  Settings,
+  Sun,
+  User,
+  Users,
+} from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { logoutUser } from '@/lib/services/authService';
@@ -13,18 +23,20 @@ interface SidebarHeaderProps {
   onOpenProfile: () => void;
   onOpenNewChat: () => void;
   onOpenNewGroup: () => void;
-  onOpenStatus: () => void;
+  onOpenArchived: () => void;
+  onOpenSettings: () => void;
 }
 
 export function SidebarHeader({
   onOpenProfile,
   onOpenNewChat,
   onOpenNewGroup,
-  onOpenStatus,
+  onOpenArchived,
+  onOpenSettings,
 }: SidebarHeaderProps) {
   const router = useRouter();
   const { user, setUser } = useAuthStore();
-  const { theme, toggleTheme, setActiveChatId, setChats, setMobileSidebarOpen } = useChatStore();
+  const { theme, toggleTheme, setActiveChatId, setChats } = useChatStore();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -50,113 +62,58 @@ export function SidebarHeader({
     router.refresh();
   };
 
+  const itemClass =
+    'w-full px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition text-sm';
+
   return (
-    <header className="h-16 px-4 bg-[var(--wa-header-bg)] flex items-center justify-between border-b border-[var(--wa-border)] shrink-0 select-none backdrop-blur-md">
-      {/* ================= DESKTOP HEADER (>= md): Authentic Clean "Obrolan" Title (No Duplicate Profile) ================= */}
-      <div className="hidden md:flex items-center gap-3">
-        <h1 className="text-xl font-black text-[var(--wa-text-primary)] tracking-tight">
-          Obrolan
-        </h1>
-        {isGuest && (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-            Demo
-          </span>
-        )}
-      </div>
+    <header className="h-[59px] px-4 bg-[var(--wa-header-bg)] flex items-center justify-between shrink-0 select-none">
+      <h1 className="text-[20px] md:text-[22px] font-semibold text-[var(--wa-text-primary)] tracking-tight truncate">
+        <span className="hidden md:inline">Obrolan</span>
+        <span className="md:hidden">Dardcor Media</span>
+      </h1>
 
-      {/* ================= MOBILE HEADER (< md): Mobile App Branding & User Avatar ================= */}
-      <div className="flex md:hidden items-center gap-2.5">
-        <button
-          onClick={() => setMobileSidebarOpen(true)}
-          className="p-2 -ml-1 rounded-xl text-purple-300 hover:text-white hover:bg-white/5 active:scale-95 transition"
-          title="Buka Menu Navigasi"
-        >
-          <Menu size={22} />
-        </button>
-
-        <div className="cursor-pointer active:scale-95 transition" onClick={onOpenProfile} title="Lihat Profil">
-          <Avatar
-            src={user?.avatar_url}
-            name={user?.display_name || user?.username || 'Saya'}
-            size="sm"
-          />
-        </div>
-
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="font-extrabold text-sm bg-gradient-to-r from-purple-300 via-purple-100 to-indigo-200 bg-clip-text text-transparent truncate">
-              Dardcor Media
-            </span>
-            {isGuest && (
-              <span className="px-1.5 py-0.2 rounded text-[8px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                Demo
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] text-[var(--wa-text-secondary)] truncate max-w-[120px]">
-            {user?.display_name || `@${user?.username}`}
-          </span>
-        </div>
-      </div>
-
-      {/* Right: Actions */}
-      <div className="flex items-center gap-1 text-[var(--wa-text-secondary)]">
-        {/* On Mobile Only: Jump to TikTok Feed Button */}
-        <Link
-          href="/media"
-          title="Buka TikTok Media Feed"
-          className="md:hidden p-2 rounded-full hover:bg-[var(--wa-hover)] text-[#25F4EE] hover:text-[#25F4EE] transition active:scale-95"
-        >
-          <Film size={20} />
-        </Link>
-
-        {/* Status / Cerita */}
-        <button
-          onClick={onOpenStatus}
-          title="Status / Cerita"
-          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
-        >
-          <CircleDashed size={20} />
-        </button>
-
-        {/* New Chat */}
+      <div className="flex items-center gap-0.5 text-[var(--wa-text-secondary)]">
         <button
           onClick={onOpenNewChat}
-          title="Mulai Obrolan Baru"
-          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
+          title="Obrolan baru"
+          aria-label="Obrolan baru"
+          className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition active:scale-95"
         >
-          <MessageSquarePlus size={20} />
+          <MessageSquarePlus size={21} />
         </button>
 
-        {/* Menu Dropdown */}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            title="Menu Pilihan"
-            className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[#c084fc] transition active:scale-95"
+            title="Menu"
+            aria-label="Menu"
+            className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition active:scale-95"
           >
-            <MoreVertical size={20} />
+            <MoreVertical size={21} />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-12 w-52 bg-white dark:bg-[#1f1a33] rounded-2xl shadow-2xl border border-[var(--wa-border)] py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100">
-              <Link
-                href="/media"
-                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
-              >
-                <Film size={16} className="text-[#25F4EE]" />
-                <span>Media Feed TikTok</span>
-              </Link>
-
+            <div className="absolute right-0 top-11 w-[210px] bg-[var(--wa-bg-sidebar)] rounded-md shadow-2xl border border-[var(--wa-border)] py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
               <button
                 onClick={() => {
                   setMenuOpen(false);
                   onOpenNewGroup();
                 }}
-                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
+                className={itemClass}
               >
-                <Users size={16} />
-                <span>Grup Baru</span>
+                <Users size={17} />
+                <span>Grup baru</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenArchived();
+                }}
+                className={itemClass}
+              >
+                <Archive size={17} />
+                <span>Obrolan diarsipkan</span>
               </button>
 
               <button
@@ -164,10 +121,21 @@ export function SidebarHeader({
                   setMenuOpen(false);
                   onOpenProfile();
                 }}
-                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
+                className={itemClass}
               >
-                <User size={16} />
-                <span>Profil Saya</span>
+                <User size={17} />
+                <span>Profil saya</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenSettings();
+                }}
+                className={itemClass}
+              >
+                <Settings size={17} />
+                <span>Pengaturan</span>
               </button>
 
               <button
@@ -175,29 +143,30 @@ export function SidebarHeader({
                   toggleTheme();
                   setMenuOpen(false);
                 }}
-                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
+                className={itemClass}
               >
-                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-                <span>Tema: {theme === 'dark' ? 'Terang' : 'Gelap'}</span>
+                {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+                <span>Tema {theme === 'dark' ? 'terang' : 'gelap'}</span>
               </button>
 
-              <hr className="my-1.5 border-[var(--wa-border)]" />
+              <div className="my-1.5 border-t border-[var(--wa-border)]" />
 
               {isGuest ? (
                 <Link
                   href="/login"
-                  className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-purple-500/10 text-left text-[#a78bfa] font-medium transition"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[#8b5cf6] font-medium transition text-sm"
                 >
-                  <LogIn size={16} />
-                  <span>Masuk / Daftar Akun</span>
+                  <LogIn size={17} />
+                  <span>Masuk / daftar akun</span>
                 </Link>
               ) : (
                 <button
                   onClick={handleLogout}
-                  className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-red-500/10 text-left text-red-400 transition"
+                  className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-rose-500 transition text-sm"
                 >
-                  <LogOut size={16} />
-                  <span>Keluar Akun</span>
+                  <LogOut size={17} />
+                  <span>Keluar</span>
                 </button>
               )}
             </div>

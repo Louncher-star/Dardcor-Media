@@ -79,6 +79,11 @@ export interface Chat {
   last_message?: Message | null;
   unread_count?: number;
   other_participant?: Profile; // untuk 1-on-1 chat
+  is_pinned?: boolean;
+  is_archived?: boolean;
+  is_muted?: boolean;
+  my_role?: ParticipantRole;
+  disappearing_seconds?: number;
 }
 
 export interface UserStatus {

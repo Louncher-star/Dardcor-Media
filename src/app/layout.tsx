@@ -17,14 +17,15 @@ export const viewport: Viewport = {
   themeColor: '#7c3aed',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {
-  title: 'Dardcor Media - Modern Chat & Communication',
+  applicationName: 'Dardcor Media',
+  title: 'Dardcor Media - Pesan Instan',
   description: 'Platform obrolan dan komunikasi real-time modern dari Dardcor Media bernuansa ungu.',
   manifest: '/manifest.json',
+  formatDetection: { telephone: false, email: false, address: false },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

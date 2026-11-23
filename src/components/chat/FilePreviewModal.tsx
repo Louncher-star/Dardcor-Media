@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -38,30 +38,20 @@ export function FilePreviewModal({
   onSend,
 }: FilePreviewModalProps) {
   const { theme } = useChatStore();
-  const [mounted, setMounted] = useState(false);
   const [caption, setCaption] = useState('');
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (file && (fileType === 'image' || fileType === 'video' || fileType === 'audio')) {
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreviewUrl(null);
-    }
+  const previewUrl = useMemo(() => {
+    if (!file || !['image', 'video', 'audio'].includes(fileType)) return null;
+    return URL.createObjectURL(file);
   }, [file, fileType]);
 
   useEffect(() => {
-    setCaption('');
-    setIsEmojiOpen(false);
-  }, [file]);
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   // Click outside emoji picker
   useEffect(() => {
@@ -74,7 +64,7 @@ export function FilePreviewModal({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!mounted || !isOpen || !file) return null;
+  if (!isOpen || !file) return null;
 
   const handleSend = () => {
     if (isUploading) return;
