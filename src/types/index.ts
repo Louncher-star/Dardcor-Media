@@ -1,6 +1,19 @@
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system';
+export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'poll' | 'system';
 export type ParticipantRole = 'admin' | 'member';
 export type DeliveryStatus = 'sent' | 'delivered' | 'read';
+
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: string[]; // daftar user_id yang memilih opsi ini
+}
+
+export interface PollData {
+  question: string;
+  options: PollOption[];
+  allow_multiple: boolean;
+  total_votes?: number;
+}
 
 export interface Profile {
   id: string;
@@ -55,6 +68,7 @@ export interface Message {
   media_size?: number | null;
   media_mime_type?: string | null;
   media_duration?: number | null; // dalam detik untuk audio/voice note
+  poll_data?: PollData | null;
   reply_to_id?: string | null;
   is_deleted_for_all: boolean;
   created_at: string;

@@ -19,6 +19,7 @@ import { useChatStore } from '@/lib/store/useChatStore';
 import { formatMessageTime } from '@/lib/utils/dateUtils';
 import { MediaMessage } from './MediaMessage';
 import { VoiceMessage } from './VoiceMessage';
+import { PollMessageBubble } from './PollMessageBubble';
 import { MessageReactions, ReactionPickerBar } from './MessageReactions';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { setStarredMessage } from '@/lib/services/chatService';
@@ -54,8 +55,10 @@ export function MessageBubble({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartX = useRef<number>(0);
 
   const isStarred = starredMessageIds.includes(message.id);
 
@@ -173,22 +176,55 @@ export function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
-      onTouchStart={() => {
+      onTouchStart={(e) => {
+        touchStartX.current = e.touches[0].clientX;
         longPressTimer.current = setTimeout(() => setMenuOpen(true), 500);
       }}
       onTouchEnd={() => {
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
+        if (swipeOffset > 42) {
+          handleReply();
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try {
+              navigator.vibrate(30);
+            } catch {}
+          }
+        }
+        setSwipeOffset(0);
       }}
-      onTouchMove={() => {
-        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      onTouchMove={(e) => {
+        const deltaX = e.touches[0].clientX - touchStartX.current;
+        if (Math.abs(deltaX) > 10 && longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+        }
+        // Swipe ke kanan ala WhatsApp (maks 65px)
+        if (deltaX > 0 && deltaX < 75) {
+          setSwipeOffset(deltaX);
+        } else if (deltaX <= 0) {
+          setSwipeOffset(0);
+        }
       }}
       className={cn(
-        'w-full flex my-[1px] relative group select-text scroll-mt-4',
+        'w-full flex my-[1px] relative group select-text scroll-mt-4 items-center',
         isMe ? 'justify-end' : 'justify-start'
       )}
     >
+      {/* Swipe To Reply Indicator (Mobile Gesture) */}
+      {swipeOffset > 10 && (
+        <div
+          className="absolute left-2 z-10 w-7 h-7 rounded-full bg-[var(--wa-header-bg)] border border-[var(--wa-border)] flex items-center justify-center text-[var(--wa-teal)] shadow transition-opacity"
+          style={{ opacity: Math.min(1, swipeOffset / 40) }}
+        >
+          <Reply size={15} />
+        </div>
+      )}
+
       <div
         ref={menuRef}
+        style={{
+          transform: swipeOffset > 0 ? `translateX(${swipeOffset}px)` : undefined,
+          transition: swipeOffset === 0 ? 'transform 0.2s ease-out' : undefined,
+        }}
         className={cn(
           'relative max-w-[85%] sm:max-w-[65%] rounded-[7.5px] px-[9px] py-[6px] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] text-[14.2px] leading-[19px] transition-colors',
           isMe
@@ -248,8 +284,13 @@ export function MessageBubble({
               <VoiceMessage message={message} isMe={isMe} />
             )}
 
+            {/* WhatsApp Interactive Poll */}
+            {message.message_type === 'poll' && (
+              <PollMessageBubble message={message} isMe={isMe} />
+            )}
+
             {/* Text Message */}
-            {message.content && (
+            {message.content && message.message_type !== 'poll' && (
               <div className="whitespace-pre-wrap break-words leading-[19px] pr-14">
                 {searchQuery.trim()
                   ? highlightText(message.content, searchQuery.trim())
@@ -270,11 +311,11 @@ export function MessageBubble({
         {!isDeleted && (
           <div
             className={cn(
-              'absolute top-1 transition-opacity flex items-center gap-0.5 select-none',
+              'absolute top-1 transition-opacity flex items-center gap-0.5 select-none z-30',
               menuOpen || reactionPickerOpen
-                ? 'opacity-100'
-                : 'opacity-0 group-hover:opacity-100',
-              isMe ? 'left-[-44px]' : 'right-[-44px]'
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto',
+              isMe ? 'sm:left-[-48px] right-2 sm:right-auto' : 'sm:right-[-48px] right-2'
             )}
           >
             {/* React Icon */}

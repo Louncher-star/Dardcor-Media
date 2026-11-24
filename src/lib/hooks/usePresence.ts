@@ -19,7 +19,8 @@ export function usePresence(activeChatId: string | null) {
     let presenceChannel: RealtimeChannel | null = null;
 
     try {
-      const channelName = `presence_room_${user.id}_${Math.random().toString(36).substring(2, 8)}`;
+      // Menggunakan single shared channel untuk seluruh klien agar presence & typing tersinkronisasi
+      const channelName = 'dardcor_global_presence';
 
       presenceChannel = supabase.channel(channelName, {
         config: {

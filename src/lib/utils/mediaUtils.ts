@@ -160,9 +160,24 @@ export async function downloadMediaFile(
         if (onProgress) {
           onProgress(Math.round((i / totalParts) * 100));
         }
-        const res = await fetch(manifest.parts[i]);
-        if (!res.ok) {
-          throw new Error(`Gagal mengunduh bagian ${i + 1} dari ${totalParts} (HTTP ${res.status})`);
+
+        // Retry hingga 3 kali per bagian chunk jika ada lonjakan jaringan
+        let res: Response | null = null;
+        let lastError: Error | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            res = await fetch(manifest.parts[i]);
+            if (res.ok) break;
+          } catch (e: unknown) {
+            lastError = e instanceof Error ? e : new Error(String(e));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+
+        if (!res || !res.ok) {
+          throw new Error(
+            `Gagal mengunduh bagian ${i + 1} dari ${totalParts} (${res ? 'HTTP ' + res.status : lastError?.message || 'Gangguan koneksi'})`
+          );
         }
         const blob = await res.blob();
         partBlobs.push(blob);
@@ -197,7 +212,33 @@ export async function downloadMediaFile(
     return;
   }
 
-  // C. File normal dari Supabase Public URL
+  // C. Unduh langsung untuk URL Supabase Storage publik (?download=fileName)
+  // Cara ini menghemat RAM browser secara drastis & mendukung resume bawaan Chrome
+  try {
+    if (mediaUrl.includes('supabase.co/storage/v1/object/public/')) {
+      const separator = mediaUrl.includes('?') ? '&' : '?';
+      const downloadParam = `download=${encodeURIComponent(fileName)}`;
+      const directUrl = `${mediaUrl}${separator}${downloadParam}`;
+
+      const a = document.createElement('a');
+      a.href = directUrl;
+      a.download = fileName;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+      }, 100);
+
+      if (onProgress) onProgress(100);
+      return;
+    }
+  } catch (err) {
+    console.warn('Supabase direct download parameter failed, falling back to blob fetch:', err);
+  }
+
+  // D. File normal / eksternal via fetch blob
   try {
     if (onProgress) onProgress(20);
     const res = await fetch(mediaUrl);
@@ -208,7 +249,6 @@ export async function downloadMediaFile(
     triggerBrowserDownload(blob, fileName);
   } catch (err) {
     console.warn('Direct fetch download failed, fallback to direct anchor:', err);
-    // Fallback: buka link langsung
     const a = document.createElement('a');
     a.href = mediaUrl;
     a.download = fileName;
@@ -216,7 +256,9 @@ export async function downloadMediaFile(
     a.rel = 'noopener noreferrer';
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 100);
   }
 }
 
@@ -227,8 +269,19 @@ function triggerBrowserDownload(blob: Blob, fileName: string) {
   a.download = fileName;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+  setTimeout(() => {
+    if (document.body.contains(a)) document.body.removeChild(a);
+  }, 100);
+
+  // PENTING: Jangan revoke blobUrl terlalu cepat (sebelumnya hanya 15 detik)!
+  // Untuk file besar (155 MB), browser membutuhkan waktu menulis stream ke disk.
+  // Revokasi dini menyebabkan pesan "Failed - Network error" di Chrome.
+  // Pertahankan blob URL selama 10 menit (600.000 ms).
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(blobUrl);
+    } catch {}
+  }, 600000);
 }
 
 export async function uploadAvatar(file: File, userId: string): Promise<string> {

@@ -7,9 +7,10 @@ interface AttachmentMenuProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectMedia: (file: File, type: 'image' | 'video' | 'audio' | 'document') => void;
+  onOpenPoll?: () => void;
 }
 
-export function AttachmentMenu({ isOpen, onClose, onSelectMedia }: AttachmentMenuProps) {
+export function AttachmentMenu({ isOpen, onClose, onSelectMedia, onOpenPoll }: AttachmentMenuProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -200,8 +201,8 @@ export function AttachmentMenu({ isOpen, onClose, onSelectMedia }: AttachmentMen
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              alert('Fitur jajak pendapat (polling) segera hadir di pembaruan berikutnya.');
               onClose();
+              onOpenPoll?.();
             }}
             className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl hover:bg-[var(--wa-hover)] text-left transition group cursor-pointer"
           >

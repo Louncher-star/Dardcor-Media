@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Chat } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
+import { CallModal } from './CallModal';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { formatChatListTime } from '@/lib/utils/dateUtils';
@@ -67,6 +68,7 @@ export function ChatHeader({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDisappearing, setShowDisappearing] = useState(false);
+  const [activeCall, setActiveCall] = useState<{ type: 'audio' | 'video' } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -231,7 +233,7 @@ export function ChatHeader({
         </button>
 
         <button
-          onClick={() => alert('Panggilan video belum tersedia di versi web Dardcor Media.')}
+          onClick={() => setActiveCall({ type: 'video' })}
           title="Panggilan video"
           aria-label="Panggilan video"
           className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition"
@@ -240,7 +242,7 @@ export function ChatHeader({
         </button>
 
         <button
-          onClick={() => alert('Panggilan suara belum tersedia di versi web Dardcor Media.')}
+          onClick={() => setActiveCall({ type: 'audio' })}
           title="Panggilan suara"
           aria-label="Panggilan suara"
           className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition"
@@ -357,6 +359,17 @@ export function ChatHeader({
           )}
         </div>
       </div>
+
+      {/* WhatsApp Fullscreen Interactive Audio/Video Call */}
+      {activeCall && (
+        <CallModal
+          isOpen={Boolean(activeCall)}
+          callType={activeCall.type}
+          contact={otherUser || null}
+          chatName={chatName}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </header>
   );
 }

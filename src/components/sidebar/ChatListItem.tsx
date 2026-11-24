@@ -41,6 +41,7 @@ interface ChatListItemProps {
 export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
   const { user } = useAuthStore();
   const {
+    chats,
     onlineUserIds,
     typingUsers,
     drafts,
@@ -104,7 +105,19 @@ export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
     setMenuOpen(false);
   };
 
-  const handleTogglePin = () => applyPrefs({ is_pinned: !chat.is_pinned });
+  const handleTogglePin = () => {
+    if (!chat.is_pinned) {
+      const currentPinnedCount = chats.filter((c) => c.is_pinned).length;
+      if (currentPinnedCount >= 3) {
+        alert(
+          'Anda hanya dapat menyematkan maksimal 3 obrolan (standar WhatsApp). Lepaskan sematan obrolan lain terlebih dahulu.'
+        );
+        setMenuOpen(false);
+        return;
+      }
+    }
+    applyPrefs({ is_pinned: !chat.is_pinned });
+  };
   const handleToggleMute = () => applyPrefs({ is_muted: !chat.is_muted });
   const handleToggleArchive = () => {
     applyPrefs({ is_archived: !chat.is_archived });

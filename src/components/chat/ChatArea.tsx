@@ -13,6 +13,7 @@ import { ChatInfoDrawer } from './ChatInfoDrawer';
 import { ChatSearchBar } from './ChatSearchBar';
 import { ForwardMessageModal } from './ForwardMessageModal';
 import { StarredMessagesDrawer } from './StarredMessagesDrawer';
+import { CreatePollModal } from './CreatePollModal';
 import { usePresence } from '@/lib/hooks/usePresence';
 import {
   fetchChatMessages,
@@ -22,7 +23,7 @@ import {
 } from '@/lib/services/chatService';
 import { uploadChatMedia } from '@/lib/utils/mediaUtils';
 import { playMessageSentSound } from '@/lib/utils/soundUtils';
-import { Message } from '@/types';
+import { Message, PollData } from '@/types';
 import { UploadCloud } from 'lucide-react';
 
 export function ChatArea() {
@@ -50,6 +51,7 @@ export function ChatArea() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex, setSearchIndex] = useState(0);
   const [isStarredOpen, setIsStarredOpen] = useState(false);
+  const [isCreatePollOpen, setIsCreatePollOpen] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
 
   // Acuan waktu untuk menyaring pesan sementara; Date.now() tidak boleh dipanggil saat render
@@ -175,6 +177,35 @@ export function ChatArea() {
     return 'document';
   };
 
+  // Handler kirim Polling WhatsApp Interaktif
+  const handleCreatePoll = async (pollData: PollData) => {
+    if (!user || !activeChat) return;
+    playMessageSentSound();
+
+    const pollMsgId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0');
+
+    const otherUserId = activeChat.other_participant?.id;
+
+    const newMsg: Message = {
+      id: pollMsgId,
+      chat_id: activeChat.id,
+      sender_id: user.id,
+      content: JSON.stringify(pollData),
+      message_type: 'poll',
+      poll_data: pollData,
+      is_deleted_for_all: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sender: user,
+    };
+
+    addMessage(newMsg);
+    await appendMessage(newMsg, user.id, otherUserId);
+  };
+
   // Drag & Drop Handlers ala WhatsApp Web
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -262,7 +293,7 @@ export function ChatArea() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="flex-1 h-full flex flex-col bg-[var(--wa-chat-bg)] relative overflow-hidden z-10 select-none"
+      className="flex-1 h-full flex flex-col bg-[var(--wa-chat-bg)] wa-chat-wallpaper relative overflow-hidden z-10 select-none"
     >
       {/* WhatsApp Drag & Drop Overlay */}
       {isDragging && (
@@ -332,6 +363,14 @@ export function ChatArea() {
         chatId={activeChat.id}
         onSendTyping={sendTypingSignal}
         onRequestFilePreview={(file, type) => setPreviewFile({ file, type })}
+        onOpenPoll={() => setIsCreatePollOpen(true)}
+      />
+
+      {/* WhatsApp Create Poll Modal */}
+      <CreatePollModal
+        isOpen={isCreatePollOpen}
+        onClose={() => setIsCreatePollOpen(false)}
+        onCreatePoll={handleCreatePoll}
       />
 
       {/* WhatsApp Media Preview & Caption Modal */}

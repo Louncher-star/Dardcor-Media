@@ -17,9 +17,15 @@ interface ChatInputBarProps {
   chatId: string;
   onSendTyping: (isTyping: boolean) => void;
   onRequestFilePreview?: (file: File, type: 'image' | 'video' | 'audio' | 'document') => void;
+  onOpenPoll?: () => void;
 }
 
-export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: ChatInputBarProps) {
+export function ChatInputBar({
+  chatId,
+  onSendTyping,
+  onRequestFilePreview,
+  onOpenPoll,
+}: ChatInputBarProps) {
   const { user } = useAuthStore();
   const {
     replyingToMessage,
@@ -292,7 +298,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
 
             {isEmojiPickerOpen && (
               <div
-                className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+                className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 max-w-[calc(100vw-24px)]"
                 onClick={(e) => e.stopPropagation()}
               >
                 <EmojiPicker
@@ -324,6 +330,7 @@ export function ChatInputBar({ chatId, onSendTyping, onRequestFilePreview }: Cha
               isOpen={isAttachmentOpen}
               onClose={() => setIsAttachmentOpen(false)}
               onSelectMedia={handleSelectMedia}
+              onOpenPoll={onOpenPoll}
             />
           </div>
 
