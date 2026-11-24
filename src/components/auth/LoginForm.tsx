@@ -58,8 +58,9 @@ export function LoginForm() {
               username: meta.username || cleanEmail.split('@')[0],
               display_name: meta.display_name || meta.username || 'Pengguna',
               avatar_url:
-                meta.avatar_url ||
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+                meta.avatar_url && !meta.avatar_url.includes('unsplash.com')
+                  ? meta.avatar_url
+                  : null,
               about: meta.about || 'Ada! Menggunakan Dardcor Media.',
               is_online: true,
               created_at: new Date().toISOString(),

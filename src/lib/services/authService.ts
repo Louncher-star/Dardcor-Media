@@ -60,7 +60,12 @@ export function getStoredCurrentUser(): Profile | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(CURRENT_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.avatar_url && parsed.avatar_url.includes('unsplash.com')) {
+      parsed.avatar_url = null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -241,7 +246,11 @@ export async function fetchCloudProfiles(): Promise<Profile[]> {
         .order('display_name', { ascending: true });
 
       if (!error && data) {
-        return data as Profile[];
+        const cleaned = data.map((p) => ({
+          ...p,
+          avatar_url: p.avatar_url && p.avatar_url.includes('unsplash.com') ? null : p.avatar_url,
+        }));
+        return cleaned as Profile[];
       }
     } catch (e) {
       console.error('Error fetching cloud profiles:', e);
@@ -269,6 +278,9 @@ export async function getCurrentUser(): Promise<Profile | null> {
           .maybeSingle();
 
         if (profile) {
+          if (profile.avatar_url && profile.avatar_url.includes('unsplash.com')) {
+            profile.avatar_url = null;
+          }
           setAuthCookie(profile.id);
           setStoredCurrentUser(profile as Profile);
           return profile as Profile;
@@ -280,8 +292,9 @@ export async function getCurrentUser(): Promise<Profile | null> {
           username: meta.username || user.email?.split('@')[0] || 'user',
           display_name: meta.display_name || meta.username || 'Pengguna',
           avatar_url:
-            meta.avatar_url ||
-            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            meta.avatar_url && !meta.avatar_url.includes('unsplash.com')
+              ? meta.avatar_url
+              : null,
           about: meta.about || 'Ada! Menggunakan Dardcor Media.',
           is_online: true,
           created_at: new Date().toISOString(),
@@ -316,6 +329,9 @@ export async function getCurrentUser(): Promise<Profile | null> {
         .maybeSingle();
 
       if (dbProfile) {
+        if (dbProfile.avatar_url && dbProfile.avatar_url.includes('unsplash.com')) {
+          dbProfile.avatar_url = null;
+        }
         setStoredCurrentUser(dbProfile as Profile);
         setAuthCookie(dbProfile.id);
         return dbProfile as Profile;

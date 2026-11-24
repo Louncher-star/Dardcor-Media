@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Eye, EyeOff, Lock, Mail, User, AtSign, ArrowRight, Camera, Check } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { Avatar } from '@/components/ui/Avatar';
+import { Avatar, WhatsAppDefaultUserAvatar } from '@/components/ui/Avatar';
 import { Profile } from '@/types';
 import {
   setAuthCookie,
@@ -37,7 +37,7 @@ export function RegisterForm() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [about, setAbout] = useState('Ada! Menggunakan Dardcor Media.');
-  const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_PRESETS[0]);
+  const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -187,6 +187,24 @@ export function RegisterForm() {
           </div>
           <p className="text-xs text-purple-300/80 mb-2">Pilih Foto Profil Anda</p>
           <div className="flex gap-2">
+            {/* Opsi 1: Default WhatsApp (Kosong) */}
+            <button
+              type="button"
+              onClick={() => setSelectedAvatar(null)}
+              title="Avatar WhatsApp Kosong"
+              className={`relative w-8 h-8 rounded-full overflow-hidden border-2 transition ${
+                selectedAvatar === null
+                  ? 'border-[#8b5cf6] scale-110 shadow-md shadow-purple-500/40'
+                  : 'border-transparent opacity-70'
+              }`}
+            >
+              <WhatsAppDefaultUserAvatar />
+              {selectedAvatar === null && (
+                <div className="absolute inset-0 bg-[#7c3aed]/50 flex items-center justify-center text-white">
+                  <Check size={12} strokeWidth={3} />
+                </div>
+              )}
+            </button>
             {AVATAR_PRESETS.map((preset, idx) => (
               <button
                 key={idx}
