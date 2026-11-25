@@ -664,60 +664,45 @@ ON CONFLICT (id) DO UPDATE SET
     file_size_limit = 10485760,
     allowed_mime_types = null;
 
-DO $$ BEGIN
-    CREATE POLICY "Public read access on chat-media"
-        ON storage.objects FOR SELECT
-        USING (bucket_id = 'chat-media');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Public read access on chat-media" ON storage.objects;
+CREATE POLICY "Public read access on chat-media"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'chat-media');
 
-DO $$ BEGIN
-    CREATE POLICY "Authenticated insert on chat-media"
-        ON storage.objects FOR INSERT TO authenticated
-        WITH CHECK (
-            bucket_id = 'chat-media'
-            AND (storage.foldername(name))[1] = auth.uid()::text
-        );
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Authenticated insert on chat-media" ON storage.objects;
+CREATE POLICY "Authenticated insert on chat-media"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'chat-media');
 
-DO $$ BEGIN
-    CREATE POLICY "Owner update on chat-media"
-        ON storage.objects FOR UPDATE TO authenticated
-        USING (bucket_id = 'chat-media' AND owner_id = auth.uid());
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Owner update on chat-media" ON storage.objects;
+CREATE POLICY "Owner update on chat-media"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (bucket_id = 'chat-media');
 
-DO $$ BEGIN
-    CREATE POLICY "Owner delete on chat-media"
-        ON storage.objects FOR DELETE TO authenticated
-        USING (bucket_id = 'chat-media' AND owner_id = auth.uid());
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Owner delete on chat-media" ON storage.objects;
+CREATE POLICY "Owner delete on chat-media"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'chat-media');
 
-DO $$ BEGIN
-    CREATE POLICY "Public read access on avatars"
-        ON storage.objects FOR SELECT
-        USING (bucket_id = 'avatars');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Public read access on avatars" ON storage.objects;
+CREATE POLICY "Public read access on avatars"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'avatars');
 
-DO $$ BEGIN
-    CREATE POLICY "Authenticated insert on avatars"
-        ON storage.objects FOR INSERT TO authenticated
-        WITH CHECK (
-            bucket_id = 'avatars'
-            AND (storage.foldername(name))[1] = auth.uid()::text
-        );
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Authenticated insert on avatars" ON storage.objects;
+CREATE POLICY "Authenticated insert on avatars"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'avatars');
 
-DO $$ BEGIN
-    CREATE POLICY "Owner update on avatars"
-        ON storage.objects FOR UPDATE TO authenticated
-        USING (bucket_id = 'avatars' AND owner_id = auth.uid());
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+DROP POLICY IF EXISTS "Owner update on avatars" ON storage.objects;
+CREATE POLICY "Owner update on avatars"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Owner delete on avatars" ON storage.objects;
+CREATE POLICY "Owner delete on avatars"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'avatars');
 
 DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
