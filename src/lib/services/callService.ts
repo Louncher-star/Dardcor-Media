@@ -1,7 +1,7 @@
 import { CallSession, Profile } from '@/types';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { toValidUuid } from '@/lib/utils/uuidUtils';
-import { broadcastLocalSync } from './chatService';
+import { broadcastLocalSync, subscribeToLocalSync } from './chatService';
 
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -54,6 +54,7 @@ export async function createCallSession(
 }
 
 export async function answerCallSession(sessionId: string, sdpAnswer?: string) {
+  broadcastLocalSync('CALL_ACCEPTED', { sessionId });
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -69,10 +70,10 @@ export async function answerCallSession(sessionId: string, sdpAnswer?: string) {
       console.error('Error answering call session:', err);
     }
   }
-  broadcastLocalSync('CALL_ACCEPTED', { sessionId });
 }
 
 export async function rejectCallSession(sessionId: string) {
+  broadcastLocalSync('CALL_REJECTED', { sessionId });
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -87,10 +88,10 @@ export async function rejectCallSession(sessionId: string) {
       console.error('Error rejecting call session:', err);
     }
   }
-  broadcastLocalSync('CALL_REJECTED', { sessionId });
 }
 
 export async function endCallSession(sessionId: string) {
+  broadcastLocalSync('CALL_ENDED', { sessionId });
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
@@ -105,7 +106,79 @@ export async function endCallSession(sessionId: string) {
       console.error('Error ending call session:', err);
     }
   }
-  broadcastLocalSync('CALL_ENDED', { sessionId });
+}
+
+export function subscribeToCallSession(
+  sessionId: string,
+  onUpdate: (session: CallSession) => void
+) {
+  if (!sessionId) return () => {};
+
+  const localCleanup = subscribeToLocalSync((event: { type: string; payload: any }) => {
+    if (
+      event.type === 'CALL_ENDED' ||
+      event.type === 'CALL_REJECTED' ||
+      event.type === 'CALL_ACCEPTED'
+    ) {
+      if (event.payload?.sessionId === sessionId) {
+        onUpdate({
+          id: sessionId,
+          status:
+            event.type === 'CALL_ENDED'
+              ? 'ended'
+              : event.type === 'CALL_REJECTED'
+              ? 'rejected'
+              : 'accepted',
+        } as CallSession);
+      }
+    }
+  });
+
+  if (!isSupabaseConfigured()) {
+    return localCleanup;
+  }
+
+  const supabase = createClient();
+  const channelName = `call_session_${sessionId}_${Date.now()}`;
+
+  (async () => {
+    try {
+      const { data } = await supabase
+        .from('call_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (data) {
+        onUpdate(data as CallSession);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  })();
+
+  const channel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'call_sessions',
+      },
+      (payload) => {
+        const call = (payload.new || payload.old) as CallSession;
+        if (call && call.id === sessionId) {
+          onUpdate(call);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    localCleanup();
+    supabase.removeChannel(channel);
+  };
 }
 
 export function subscribeToIncomingCalls(

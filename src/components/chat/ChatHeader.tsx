@@ -383,10 +383,11 @@ export function ChatHeader({
         </div>
       </div>
 
-      {/* WhatsApp Fullscreen Interactive Audio/Video Call */}
       {activeCall && (
         <CallModal
           isOpen={Boolean(activeCall)}
+          sessionId={activeCall.sessionId}
+          isCaller={true}
           callType={activeCall.type}
           contact={otherUser || null}
           chatName={chatName}

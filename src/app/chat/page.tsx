@@ -41,7 +41,6 @@ export default function DardcorChatApp() {
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
   const [activeAcceptedCall, setActiveAcceptedCall] = useState<CallSession | null>(null);
 
-  // Inisialisasi Realtime dan Presence terpusat
   useRealtimeChat(activeChatId);
   usePresence(activeChatId);
 
@@ -60,21 +59,17 @@ export default function DardcorChatApp() {
 
       setUser(currentUser);
 
-      // Sinkronkan akun pengguna ke cloud database Supabase
       saveRegisteredUserToCloud(currentUser);
 
-      // Ambil daftar chat pengguna dari Supabase Cloud / local
       const loadedChats = await fetchUserChats(currentUser.id);
       setChats(loadedChats);
 
-      // Muat pesan berbintang milik pengguna
       const starred = await fetchStarredMessageIds(currentUser.id);
       setStarredMessageIds(starred);
 
       const blocked = await fetchBlockedUserIds(currentUser.id);
       setBlockedUserIds(blocked);
 
-      // Dengarkan event sinkronisasi antar-tab
       unsubscribeSync = subscribeToLocalSync(async (event) => {
         if (event.type === 'CHATS_UPDATED') {
           const freshChats = await fetchUserChats(currentUser.id);
@@ -172,17 +167,17 @@ export default function DardcorChatApp() {
           <SettingsDrawer isOpen onClose={() => setIsSettingsOpen(false)} />
         )}
 
-        {/* Modal Panggilan Masuk */}
         <IncomingCallModal
           call={incomingCall}
           onAccept={handleAcceptIncomingCall}
           onReject={handleRejectIncomingCall}
         />
 
-        {/* Modal Panggilan Aktif Setelah Diterima */}
         {activeAcceptedCall && (
           <CallModal
             isOpen={true}
+            sessionId={activeAcceptedCall.id}
+            isCaller={false}
             callType={activeAcceptedCall.call_type}
             contact={activeAcceptedCall.caller || null}
             chatName={
@@ -198,7 +193,6 @@ export default function DardcorChatApp() {
         )}
       </div>
 
-      {/* Tab bawah mobile ala WhatsApp Android */}
       <nav
         className={cn(
           'md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--wa-bg-sidebar)] border-t border-[var(--wa-border)]',

@@ -21,7 +21,6 @@ export function IncomingCallModal({ call, onAccept, onReject }: IncomingCallModa
     setMounted(true);
   }, []);
 
-  // Web Audio Ringtone untuk panggilan masuk
   const startIncomingRingtone = () => {
     try {
       const AudioCtx =

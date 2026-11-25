@@ -16,9 +16,12 @@ import {
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Profile } from '@/types';
+import { endCallSession, subscribeToCallSession } from '@/lib/services/callService';
 
 interface CallModalProps {
   isOpen: boolean;
+  sessionId?: string;
+  isCaller?: boolean;
   callType: 'audio' | 'video';
   contact: Profile | null;
   chatName: string;
@@ -27,13 +30,17 @@ interface CallModalProps {
 
 export function CallModal({
   isOpen,
+  sessionId,
+  isCaller = false,
   callType,
   contact,
   chatName,
   onClose,
 }: CallModalProps) {
   const [mounted, setMounted] = useState(false);
-  const [callState, setCallState] = useState<'calling' | 'ringing' | 'connected' | 'ended'>('calling');
+  const [callState, setCallState] = useState<'calling' | 'ringing' | 'connected' | 'ended' | 'rejected'>(
+    isCaller ? 'calling' : 'connected'
+  );
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(callType === 'video');
@@ -43,13 +50,14 @@ export function CallModal({
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const oscillatorIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Sintesis Ringback Tone menggunakan Web Audio API murni
   const startRingtone = () => {
     try {
       const AudioCtx =
@@ -59,7 +67,7 @@ export function CallModal({
       const ctx = new AudioCtx();
       audioCtxRef.current = ctx;
 
-      const playRingBurst = () => {
+      const playBurst = () => {
         if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') return;
         const now = audioCtxRef.current.currentTime;
         const osc1 = audioCtxRef.current.createOscillator();
@@ -86,17 +94,15 @@ export function CallModal({
         osc2.stop(now + 1.4);
       };
 
-      playRingBurst();
-      oscillatorIntervalRef.current = setInterval(playRingBurst, 3500);
-    } catch {
-      // AudioContext diblokir jika belum ada interaksi pengguna
-    }
+      playBurst();
+      ringIntervalRef.current = setInterval(playBurst, 3500);
+    } catch {}
   };
 
   const stopRingtone = () => {
-    if (oscillatorIntervalRef.current) {
-      clearInterval(oscillatorIntervalRef.current);
-      oscillatorIntervalRef.current = null;
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
     }
     if (audioCtxRef.current) {
       try {
@@ -114,26 +120,30 @@ export function CallModal({
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
       const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(480, now);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.45);
-      setTimeout(() => ctx.close(), 600);
+      [0, 0.22, 0.44].forEach((offset) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(425, now + offset);
+        gain.gain.setValueAtTime(0.12, now + offset);
+        gain.gain.linearRampToValueAtTime(0.001, now + offset + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.17);
+      });
+      setTimeout(() => {
+        try {
+          ctx.close();
+        } catch {}
+      }, 800);
     } catch {}
   };
 
   useEffect(() => {
     if (!isOpen) return;
 
-    setCallState('calling');
+    setCallState(isCaller ? 'calling' : 'connected');
     setDuration(0);
     setIsVideoEnabled(callType === 'video');
 
@@ -146,32 +156,77 @@ export function CallModal({
             localVideoRef.current.srcObject = stream;
           }
         })
-        .catch((err) => {
-          console.warn('Izin kamera/mikrofon tidak diberikan:', err);
-        });
+        .catch(() => {});
     }
 
-    startRingtone();
-
-    const ringTimer = setTimeout(() => {
-      setCallState('ringing');
-    }, 2000);
-
-    const connectTimer = setTimeout(() => {
-      setCallState('connected');
+    if (isCaller) {
+      startRingtone();
+    } else {
       stopRingtone();
-    }, 4500);
+    }
 
     return () => {
-      clearTimeout(ringTimer);
-      clearTimeout(connectTimer);
       stopRingtone();
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
       }
     };
-  }, [isOpen, callType]);
+  }, [isOpen, callType, isCaller]);
+
+  useEffect(() => {
+    if (!isOpen || !sessionId) return;
+
+    const unsubscribe = subscribeToCallSession(sessionId, (session) => {
+      if (session.status === 'accepted') {
+        setCallState('connected');
+        stopRingtone();
+      } else if (session.status === 'rejected') {
+        stopRingtone();
+        playEndTone();
+        setCallState('rejected');
+        setTimeout(() => {
+          onCloseRef.current();
+        }, 1200);
+      } else if (session.status === 'ended') {
+        stopRingtone();
+        playEndTone();
+        setCallState('ended');
+        setTimeout(() => {
+          onCloseRef.current();
+        }, 900);
+      }
+    });
+
+    const handleBeforeUnload = () => {
+      endCallSession(sessionId);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isOpen, sessionId]);
+
+  useEffect(() => {
+    if (!isOpen || !isCaller || callState !== 'calling') return;
+    const timeout = setTimeout(() => {
+      if (callState === 'calling') {
+        if (sessionId) {
+          endCallSession(sessionId);
+        }
+        stopRingtone();
+        playEndTone();
+        setCallState('ended');
+        setTimeout(() => {
+          onCloseRef.current();
+        }, 1200);
+      }
+    }, 45000);
+
+    return () => clearTimeout(timeout);
+  }, [isOpen, isCaller, callState, sessionId]);
 
   useEffect(() => {
     if (callState !== 'connected') return;
@@ -185,13 +240,16 @@ export function CallModal({
     stopRingtone();
     playEndTone();
     setCallState('ended');
+    if (sessionId) {
+      endCallSession(sessionId);
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
     setTimeout(() => {
       onClose();
-    }, 600);
+    }, 500);
   };
 
   const handleToggleMic = () => {
@@ -228,7 +286,6 @@ export function CallModal({
             : 'h-full sm:h-[560px] md:h-[600px] max-h-[100dvh] sm:max-h-[92vh] sm:max-w-md md:max-w-lg sm:rounded-3xl sm:border sm:border-white/10 sm:overflow-hidden'
         }`}
       >
-        {/* Top Header Bar */}
         <div className="h-14 sm:h-16 px-4 flex items-center justify-between shrink-0 z-20 bg-gradient-to-b from-black/70 to-transparent">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#00a884] animate-ping" />
@@ -255,7 +312,6 @@ export function CallModal({
           </div>
         </div>
 
-        {/* Central Display Area (Shrinkable with min-h-0) */}
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
           {callType === 'video' && isVideoEnabled ? (
             <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
@@ -283,7 +339,7 @@ export function CallModal({
           ) : (
             <div className="flex flex-col items-center justify-center z-10 space-y-4 sm:space-y-6">
               <div className="relative">
-                {callState !== 'ended' && (
+                {callState !== 'ended' && callState !== 'rejected' && (
                   <>
                     <div className="absolute -inset-3 sm:-inset-4 rounded-full bg-[#00a884]/20 animate-ping opacity-60" />
                     <div className="absolute -inset-6 sm:-inset-8 rounded-full bg-[#00a884]/10 animate-pulse" />
@@ -306,6 +362,7 @@ export function CallModal({
                   {callState === 'calling' && 'Memanggil...'}
                   {callState === 'ringing' && 'Berdering...'}
                   {callState === 'connected' && formatCallTime(duration)}
+                  {callState === 'rejected' && 'Panggilan Ditolak'}
                   {callState === 'ended' && 'Panggilan Berakhir'}
                 </p>
                 <p className="text-[11px] text-white/40">
@@ -316,9 +373,7 @@ export function CallModal({
           )}
         </div>
 
-        {/* Bottom Action Controls Bar - ALWAYS VISIBLE, NEVER CUT OFF */}
         <div className="shrink-0 z-30 flex items-center justify-center gap-4 sm:gap-6 py-4 px-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          {/* Mute Mic */}
           <button
             type="button"
             onClick={handleToggleMic}
@@ -332,7 +387,6 @@ export function CallModal({
             {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
           </button>
 
-          {/* Toggle Video (if video call) */}
           {callType === 'video' && (
             <button
               type="button"
@@ -348,7 +402,6 @@ export function CallModal({
             </button>
           )}
 
-          {/* Speaker Mute Toggle */}
           <button
             type="button"
             onClick={() => setIsSpeakerMuted(!isSpeakerMuted)}
@@ -362,7 +415,6 @@ export function CallModal({
             {isSpeakerMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           </button>
 
-          {/* Prominent Red End Call Button */}
           <button
             type="button"
             onClick={handleEndCall}
