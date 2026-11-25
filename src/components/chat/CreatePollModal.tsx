@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Trash2, BarChart2, Check } from 'lucide-react';
 import { PollData } from '@/types';
 
@@ -11,11 +12,16 @@ interface CreatePollModalProps {
 }
 
 export function CreatePollModal({ isOpen, onClose, onCreatePoll }: CreatePollModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState<string[]>(['', '']);
   const [allowMultiple, setAllowMultiple] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isOpen || !mounted) return null;
 
   const handleAddOption = () => {
     if (options.length < 12) {
@@ -60,8 +66,8 @@ export function CreatePollModal({ isOpen, onClose, onCreatePoll }: CreatePollMod
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
       <div
         className="w-full max-w-lg bg-[var(--wa-bg-sidebar)] border border-[var(--wa-border)] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
@@ -195,4 +201,6 @@ export function CreatePollModal({ isOpen, onClose, onCreatePoll }: CreatePollMod
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

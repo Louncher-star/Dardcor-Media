@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { BarChart2, Check, CheckSquare, Square, Users, X } from 'lucide-react';
 import { Message, PollData } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
@@ -17,6 +18,11 @@ export function PollMessageBubble({ message, isMe }: PollMessageBubbleProps) {
   const { user } = useAuthStore();
   const { updateMessage, chats } = useChatStore();
   const [showVotersModal, setShowVotersModal] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Parse poll data dari message.poll_data atau message.content
   const pollData: PollData | null = useMemo(() => {
@@ -214,83 +220,86 @@ export function PollMessageBubble({ message, isMe }: PollMessageBubbleProps) {
         </button>
       </div>
 
-      {/* Voters Modal */}
-      {showVotersModal && (
-        <div
-          className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowVotersModal(false)}
-        >
+      {/* Voters Modal rendered in Portal */}
+      {showVotersModal &&
+        mounted &&
+        createPortal(
           <div
-            className="w-full max-w-sm bg-[var(--wa-bg-sidebar)] border border-[var(--wa-border)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowVotersModal(false)}
           >
-            <div className="h-12 px-4 bg-[var(--wa-header-bg)] border-b border-[var(--wa-border)] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Users size={16} className="text-[#00a884]" />
-                <h3 className="font-semibold text-sm text-[var(--wa-text-primary)]">
-                  Rincian Suara
-                </h3>
+            <div
+              className="w-full max-w-sm bg-[var(--wa-bg-sidebar)] border border-[var(--wa-border)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="h-12 px-4 bg-[var(--wa-header-bg)] border-b border-[var(--wa-border)] flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <Users size={16} className="text-[#00a884]" />
+                  <h3 className="font-semibold text-sm text-[var(--wa-text-primary)]">
+                    Rincian Suara
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowVotersModal(false)}
+                  className="p-1 rounded-full text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] transition"
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <button
-                onClick={() => setShowVotersModal(false)}
-                className="p-1 rounded-full text-[var(--wa-text-secondary)] hover:text-[var(--wa-text-primary)] transition"
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {pollData.options.map((opt) => {
-                const voters = (opt.votes || []).map((vId) => {
-                  if (user && vId === user.id) return user;
-                  const found = participants.find((p) => p.user_id === vId);
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {pollData.options.map((opt) => {
+                  const voters = (opt.votes || []).map((vId) => {
+                    if (user && vId === user.id) return user;
+                    const found = participants.find((p) => p.user_id === vId);
+                    return (
+                      found?.profile || {
+                        id: vId,
+                        username: 'Pengguna',
+                        display_name: 'Pengguna',
+                        avatar_url: null,
+                      }
+                    );
+                  });
+
                   return (
-                    found?.profile || {
-                      id: vId,
-                      username: 'Pengguna',
-                      display_name: 'Pengguna',
-                      avatar_url: null,
-                    }
-                  );
-                });
-
-                return (
-                  <div key={opt.id} className="space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-[var(--wa-text-primary)] border-b border-[var(--wa-border)] pb-1">
-                      <span>{opt.text}</span>
-                      <span className="text-[var(--wa-text-secondary)] font-normal">
-                        {voters.length} suara
-                      </span>
-                    </div>
-
-                    {voters.length === 0 ? (
-                      <p className="text-xs text-[var(--wa-text-secondary)] italic pl-1">
-                        Belum ada yang memilih opsi ini.
-                      </p>
-                    ) : (
-                      <div className="space-y-1.5 pl-1">
-                        {voters.map((v, i) => (
-                          <div key={i} className="flex items-center gap-2.5">
-                            <Avatar
-                              src={v.avatar_url || null}
-                              name={v.display_name || v.username || 'U'}
-                              size="sm"
-                            />
-                            <span className="text-xs text-[var(--wa-text-primary)] font-medium truncate">
-                              {v.display_name || v.username}
-                              {user && v.id === user.id ? ' (Anda)' : ''}
-                            </span>
-                          </div>
-                        ))}
+                    <div key={opt.id} className="space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-[var(--wa-text-primary)] border-b border-[var(--wa-border)] pb-1">
+                        <span>{opt.text}</span>
+                        <span className="text-[var(--wa-text-secondary)] font-normal">
+                          {voters.length} suara
+                        </span>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {voters.length === 0 ? (
+                        <p className="text-xs text-[var(--wa-text-secondary)] italic pl-1">
+                          Belum ada yang memilih opsi ini.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5 pl-1">
+                          {voters.map((v, i) => (
+                            <div key={i} className="flex items-center gap-2.5">
+                              <Avatar
+                                src={v.avatar_url || null}
+                                name={v.display_name || v.username || 'U'}
+                                size="sm"
+                              />
+                              <span className="text-xs text-[var(--wa-text-primary)] font-medium truncate">
+                                {v.display_name || v.username}
+                                {user && v.id === user.id ? ' (Anda)' : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

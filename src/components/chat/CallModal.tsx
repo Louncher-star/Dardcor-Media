@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Mic,
   MicOff,
@@ -11,6 +12,7 @@ import {
   Minimize2,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Profile } from '@/types';
@@ -30,6 +32,7 @@ export function CallModal({
   chatName,
   onClose,
 }: CallModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [callState, setCallState] = useState<'calling' | 'ringing' | 'connected' | 'ended'>('calling');
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -42,10 +45,16 @@ export function CallModal({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscillatorIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Sintesis Ringback Tone menggunakan Web Audio API murni (tanpa file eksternal)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Sintesis Ringback Tone menggunakan Web Audio API murni
   const startRingtone = () => {
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
       audioCtxRef.current = ctx;
@@ -58,9 +67,9 @@ export function CallModal({
         const gain = audioCtxRef.current.createGain();
 
         osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(440, now); // 440 Hz
+        osc1.frequency.setValueAtTime(440, now);
         osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(480, now); // 480 Hz
+        osc2.frequency.setValueAtTime(480, now);
 
         gain.gain.setValueAtTime(0, now);
         gain.gain.linearRampToValueAtTime(0.08, now + 0.05);
@@ -80,7 +89,7 @@ export function CallModal({
       playRingBurst();
       oscillatorIntervalRef.current = setInterval(playRingBurst, 3500);
     } catch {
-      // AudioContext mungkin diblokir browser sebelum interaksi pengguna
+      // AudioContext diblokir jika belum ada interaksi pengguna
     }
   };
 
@@ -97,10 +106,11 @@ export function CallModal({
     }
   };
 
-  // Nada Panggilan Berakhir (End Call Tone)
   const playEndTone = () => {
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
       const now = ctx.currentTime;
@@ -120,7 +130,6 @@ export function CallModal({
     } catch {}
   };
 
-  // Lifecycle Panggilan
   useEffect(() => {
     if (!isOpen) return;
 
@@ -128,7 +137,6 @@ export function CallModal({
     setDuration(0);
     setIsVideoEnabled(callType === 'video');
 
-    // Mulai kamera jika panggilan video
     if (callType === 'video' && navigator.mediaDevices?.getUserMedia) {
       navigator.mediaDevices
         .getUserMedia({ video: true, audio: true })
@@ -145,12 +153,10 @@ export function CallModal({
 
     startRingtone();
 
-    // 1. Calling -> Ringing (setelah 2 detik)
     const ringTimer = setTimeout(() => {
       setCallState('ringing');
     }, 2000);
 
-    // 2. Ringing -> Connected (setelah 4.5 detik)
     const connectTimer = setTimeout(() => {
       setCallState('connected');
       stopRingtone();
@@ -167,7 +173,6 @@ export function CallModal({
     };
   }, [isOpen, callType]);
 
-  // Timer Durasi Panggilan saat Terhubung
   useEffect(() => {
     if (callState !== 'connected') return;
     const interval = setInterval(() => {
@@ -186,7 +191,7 @@ export function CallModal({
     }
     setTimeout(() => {
       onClose();
-    }, 800);
+    }, 600);
   };
 
   const handleToggleMic = () => {
@@ -209,40 +214,49 @@ export function CallModal({
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  const modalContent = (
     <div
-      className={`fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md transition-all ${
-        isFullscreen ? 'p-0' : ''
-      }`}
+      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-xl p-0 sm:p-4 md:p-6 select-none overflow-hidden"
+      style={{ touchAction: 'none' }}
     >
       <div
-        className={`w-full max-w-lg bg-[#111b21] dark:bg-[#111b21] text-white rounded-3xl shadow-2xl overflow-hidden flex flex-col relative border border-white/10 ${
-          isFullscreen ? 'max-w-none h-full rounded-none border-none' : 'h-[580px] sm:h-[620px]'
+        className={`w-full bg-[#111b21] text-white flex flex-col relative shadow-2xl transition-all ${
+          isFullscreen
+            ? 'h-full max-w-none rounded-none'
+            : 'h-full sm:h-[560px] md:h-[600px] max-h-[100dvh] sm:max-h-[92vh] sm:max-w-md md:max-w-lg sm:rounded-3xl sm:border sm:border-white/10 sm:overflow-hidden'
         }`}
       >
         {/* Top Header Bar */}
-        <div className="absolute top-0 inset-x-0 h-16 px-4 flex items-center justify-between z-20 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="h-14 sm:h-16 px-4 flex items-center justify-between shrink-0 z-20 bg-gradient-to-b from-black/70 to-transparent">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#00a884] animate-ping" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-white/80">
-              {callType === 'video' ? 'Panggilan Video' : 'Panggilan Suara'} • End-to-End Encrypted
+            <span className="text-xs font-semibold uppercase tracking-wider text-white/80 truncate max-w-[200px] sm:max-w-xs">
+              {callType === 'video' ? 'Panggilan Video' : 'Panggilan Suara'}
             </span>
           </div>
 
-          <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2 rounded-full bg-black/40 hover:bg-black/60 text-white/80 hover:text-white transition"
-            title={isFullscreen ? 'Kecilkan' : 'Perbesar'}
-          >
-            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-2 rounded-full bg-black/30 hover:bg-black/60 text-white/80 hover:text-white transition"
+              title={isFullscreen ? 'Kecilkan' : 'Perbesar'}
+            >
+              {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+            </button>
+            <button
+              onClick={handleEndCall}
+              className="p-2 rounded-full bg-black/30 hover:bg-rose-500/30 text-white/80 hover:text-rose-400 transition ml-1"
+              title="Tutup / Akhiri Panggilan"
+            >
+              <X size={19} />
+            </button>
+          </div>
         </div>
 
-        {/* Central Display Area */}
-        <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden">
-          {/* Video Stream (if video call and enabled) */}
+        {/* Central Display Area (Shrinkable with min-h-0) */}
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
           {callType === 'video' && isVideoEnabled ? (
             <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
               <video
@@ -252,8 +266,7 @@ export function CallModal({
                 muted
                 className="w-full h-full object-cover"
               />
-              {/* Remote Participant Placeholder in Video Mode */}
-              <div className="absolute top-20 right-4 w-32 h-44 rounded-2xl border-2 border-white/20 bg-black/60 backdrop-blur-sm overflow-hidden shadow-2xl flex flex-col items-center justify-center p-2 text-center">
+              <div className="absolute top-4 right-4 w-28 h-36 sm:w-32 sm:h-44 rounded-2xl border-2 border-white/20 bg-black/60 backdrop-blur-sm overflow-hidden shadow-2xl flex flex-col items-center justify-center p-2 text-center z-10">
                 <Avatar
                   src={contact?.avatar_url || null}
                   name={chatName}
@@ -268,17 +281,15 @@ export function CallModal({
               </div>
             </div>
           ) : (
-            /* Audio Call / Avatar View */
-            <div className="flex flex-col items-center justify-center z-10 space-y-5 animate-in fade-in duration-300">
-              {/* Avatar with Animated Radar Rings */}
+            <div className="flex flex-col items-center justify-center z-10 space-y-4 sm:space-y-6">
               <div className="relative">
                 {callState !== 'ended' && (
                   <>
-                    <div className="absolute -inset-4 rounded-full bg-[#00a884]/20 animate-ping opacity-60" />
-                    <div className="absolute -inset-8 rounded-full bg-[#00a884]/10 animate-pulse" />
+                    <div className="absolute -inset-3 sm:-inset-4 rounded-full bg-[#00a884]/20 animate-ping opacity-60" />
+                    <div className="absolute -inset-6 sm:-inset-8 rounded-full bg-[#00a884]/10 animate-pulse" />
                   </>
                 )}
-                <div className="relative shadow-2xl rounded-full border-4 border-white/10">
+                <div className="relative shadow-2xl rounded-full border-4 border-white/10 scale-90 sm:scale-100">
                   <Avatar
                     src={contact?.avatar_url || null}
                     name={chatName}
@@ -287,28 +298,33 @@ export function CallModal({
                 </div>
               </div>
 
-              {/* Contact Name & Status */}
-              <div className="text-center space-y-1.5">
-                <h3 className="text-2xl font-bold tracking-tight text-white">{chatName}</h3>
+              <div className="text-center space-y-1 sm:space-y-1.5 px-4">
+                <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-white truncate max-w-[280px] sm:max-w-sm">
+                  {chatName}
+                </h3>
                 <p className="text-sm font-medium text-white/70">
                   {callState === 'calling' && 'Memanggil...'}
                   {callState === 'ringing' && 'Berdering...'}
                   {callState === 'connected' && formatCallTime(duration)}
                   {callState === 'ended' && 'Panggilan Berakhir'}
                 </p>
+                <p className="text-[11px] text-white/40">
+                  Terenkripsi secara menyeluruh
+                </p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Bottom Control Actions Bar */}
-        <div className="h-24 px-6 z-20 flex items-center justify-center gap-5 sm:gap-6 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+        {/* Bottom Action Controls Bar - ALWAYS VISIBLE, NEVER CUT OFF */}
+        <div className="shrink-0 z-30 flex items-center justify-center gap-4 sm:gap-6 py-4 px-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           {/* Mute Mic */}
           <button
+            type="button"
             onClick={handleToggleMic}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg cursor-pointer ${
               isMuted
-                ? 'bg-red-500 text-white'
+                ? 'bg-red-500 text-white shadow-red-500/30'
                 : 'bg-white/15 hover:bg-white/25 text-white'
             }`}
             title={isMuted ? 'Nyalakan Mikrofon' : 'Matikan Mikrofon'}
@@ -319,10 +335,11 @@ export function CallModal({
           {/* Toggle Video (if video call) */}
           {callType === 'video' && (
             <button
+              type="button"
               onClick={handleToggleVideo}
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg ${
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg cursor-pointer ${
                 !isVideoEnabled
-                  ? 'bg-red-500 text-white'
+                  ? 'bg-red-500 text-white shadow-red-500/30'
                   : 'bg-white/15 hover:bg-white/25 text-white'
               }`}
               title={isVideoEnabled ? 'Matikan Kamera' : 'Nyalakan Kamera'}
@@ -333,10 +350,11 @@ export function CallModal({
 
           {/* Speaker Mute Toggle */}
           <button
+            type="button"
             onClick={() => setIsSpeakerMuted(!isSpeakerMuted)}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-lg cursor-pointer ${
               isSpeakerMuted
-                ? 'bg-red-500 text-white'
+                ? 'bg-red-500 text-white shadow-red-500/30'
                 : 'bg-white/15 hover:bg-white/25 text-white'
             }`}
             title={isSpeakerMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
@@ -344,16 +362,19 @@ export function CallModal({
             {isSpeakerMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           </button>
 
-          {/* End Call Button */}
+          {/* Prominent Red End Call Button */}
           <button
+            type="button"
             onClick={handleEndCall}
-            className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-2xl transition hover:scale-105 active:scale-95"
-            title="Akhiri Panggilan"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-2xl transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-rose-600/50"
+            title="Akhiri Panggilan (Stop Telepon)"
           >
-            <PhoneOff size={26} />
+            <PhoneOff size={26} className="sm:scale-110" />
           </button>
         </div>
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
