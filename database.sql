@@ -420,235 +420,185 @@ ALTER TABLE public.message_deleted_for_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.starred_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.call_sessions REPLICA IDENTITY FULL;
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+ALTER TABLE public.chat_pinned_messages REPLICA IDENTITY FULL;
+ALTER TABLE public.user_statuses REPLICA IDENTITY FULL;
+ALTER TABLE public.status_views REPLICA IDENTITY FULL;
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
+ALTER TABLE public.chats REPLICA IDENTITY FULL;
+ALTER TABLE public.chat_participants REPLICA IDENTITY FULL;
+
+DROP POLICY IF EXISTS "profiles_select" ON public.profiles;
 DROP POLICY IF EXISTS "profiles_select_authenticated" ON public.profiles;
-CREATE POLICY "profiles_select_authenticated" ON public.profiles
-    FOR SELECT TO authenticated USING (true);
+CREATE POLICY "profiles_select" ON public.profiles FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
 DROP POLICY IF EXISTS "profiles_insert_self" ON public.profiles;
-CREATE POLICY "profiles_insert_self" ON public.profiles
-    FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_insert" ON public.profiles FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
 DROP POLICY IF EXISTS "profiles_update_self" ON public.profiles;
-CREATE POLICY "profiles_update_self" ON public.profiles
-    FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_update" ON public.profiles FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "chats_select" ON public.chats;
 DROP POLICY IF EXISTS "chats_select_member" ON public.chats;
-CREATE POLICY "chats_select_member" ON public.chats
-    FOR SELECT TO authenticated USING (public.is_chat_member(id, auth.uid()));
+CREATE POLICY "chats_select" ON public.chats FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "chats_insert" ON public.chats;
 DROP POLICY IF EXISTS "chats_insert_owner" ON public.chats;
-CREATE POLICY "chats_insert_owner" ON public.chats
-    FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL AND created_by = auth.uid());
+CREATE POLICY "chats_insert" ON public.chats FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "chats_update" ON public.chats;
 DROP POLICY IF EXISTS "chats_update_member" ON public.chats;
-CREATE POLICY "chats_update_member" ON public.chats
-    FOR UPDATE TO authenticated
-    USING (public.is_chat_member(id, auth.uid()))
-    WITH CHECK (public.is_chat_member(id, auth.uid()));
+CREATE POLICY "chats_update" ON public.chats FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "chats_delete" ON public.chats;
 DROP POLICY IF EXISTS "chats_delete_member" ON public.chats;
-CREATE POLICY "chats_delete_member" ON public.chats
-    FOR DELETE TO authenticated USING (public.is_chat_member(id, auth.uid()));
+CREATE POLICY "chats_delete" ON public.chats FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "participants_select" ON public.chat_participants;
 DROP POLICY IF EXISTS "participants_select_member" ON public.chat_participants;
-CREATE POLICY "participants_select_member" ON public.chat_participants
-    FOR SELECT TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+CREATE POLICY "participants_select" ON public.chat_participants FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "participants_insert" ON public.chat_participants;
 DROP POLICY IF EXISTS "participants_insert_authorized" ON public.chat_participants;
-CREATE POLICY "participants_insert_authorized" ON public.chat_participants
-    FOR INSERT TO authenticated WITH CHECK (
-        auth.uid() IS NOT NULL
-        AND (
-            user_id = auth.uid()
-            OR EXISTS (
-                SELECT 1 FROM public.chats c
-                WHERE c.id = chat_id AND c.created_by = auth.uid()
-            )
-            OR public.is_chat_admin(chat_id, auth.uid())
-        )
-    );
+CREATE POLICY "participants_insert" ON public.chat_participants FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "participants_update" ON public.chat_participants;
 DROP POLICY IF EXISTS "participants_update_self" ON public.chat_participants;
-CREATE POLICY "participants_update_self" ON public.chat_participants
-    FOR UPDATE TO authenticated
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+CREATE POLICY "participants_update" ON public.chat_participants FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "participants_delete" ON public.chat_participants;
 DROP POLICY IF EXISTS "participants_delete_self_or_admin" ON public.chat_participants;
-CREATE POLICY "participants_delete_self_or_admin" ON public.chat_participants
-    FOR DELETE TO authenticated
-    USING (user_id = auth.uid() OR public.is_chat_admin(chat_id, auth.uid()));
+CREATE POLICY "participants_delete" ON public.chat_participants FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "messages_select" ON public.messages;
 DROP POLICY IF EXISTS "messages_select_member" ON public.messages;
-CREATE POLICY "messages_select_member" ON public.messages
-    FOR SELECT TO authenticated USING (
-        public.is_chat_member(chat_id, auth.uid())
-        AND (
-            COALESCE(
-                (SELECT c.disappearing_seconds FROM public.chats c WHERE c.id = messages.chat_id),
-                0
-            ) = 0
-            OR messages.created_at > now() - make_interval(
-                secs => COALESCE(
-                    (SELECT c.disappearing_seconds FROM public.chats c WHERE c.id = messages.chat_id),
-                    0
-                )
-            )
-        )
-    );
+CREATE POLICY "messages_select" ON public.messages FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "messages_insert" ON public.messages;
 DROP POLICY IF EXISTS "messages_insert_sender" ON public.messages;
-CREATE POLICY "messages_insert_sender" ON public.messages
-    FOR INSERT TO authenticated WITH CHECK (
-        sender_id = auth.uid()
-        AND public.is_chat_member(chat_id, auth.uid())
-        AND NOT EXISTS (
-            SELECT 1
-            FROM public.blocked_users b
-            JOIN public.chats c ON c.id = messages.chat_id AND c.is_group = false
-            JOIN public.chat_participants cp ON cp.chat_id = c.id
-            WHERE cp.user_id <> auth.uid()
-              AND (
-                  (b.user_id = auth.uid() AND b.blocked_user_id = cp.user_id)
-                  OR (b.user_id = cp.user_id AND b.blocked_user_id = auth.uid())
-              )
-        )
-    );
+CREATE POLICY "messages_insert" ON public.messages FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "messages_update" ON public.messages;
 DROP POLICY IF EXISTS "messages_update_sender" ON public.messages;
-CREATE POLICY "messages_update_sender" ON public.messages
-    FOR UPDATE TO authenticated
-    USING (sender_id = auth.uid())
-    WITH CHECK (sender_id = auth.uid());
+CREATE POLICY "messages_update" ON public.messages FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "messages_delete" ON public.messages;
 DROP POLICY IF EXISTS "messages_delete_sender" ON public.messages;
-CREATE POLICY "messages_delete_sender" ON public.messages
-    FOR DELETE TO authenticated USING (sender_id = auth.uid());
+CREATE POLICY "messages_delete" ON public.messages FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "pinned_select" ON public.chat_pinned_messages;
 DROP POLICY IF EXISTS "pinned_select_member" ON public.chat_pinned_messages;
-CREATE POLICY "pinned_select_member" ON public.chat_pinned_messages
-    FOR SELECT TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+CREATE POLICY "pinned_select" ON public.chat_pinned_messages FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "pinned_insert" ON public.chat_pinned_messages;
 DROP POLICY IF EXISTS "pinned_insert_member" ON public.chat_pinned_messages;
-CREATE POLICY "pinned_insert_member" ON public.chat_pinned_messages
-    FOR INSERT TO authenticated WITH CHECK (public.is_chat_member(chat_id, auth.uid()) AND pinned_by = auth.uid());
+CREATE POLICY "pinned_insert" ON public.chat_pinned_messages FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "pinned_delete" ON public.chat_pinned_messages;
 DROP POLICY IF EXISTS "pinned_delete_member" ON public.chat_pinned_messages;
-CREATE POLICY "pinned_delete_member" ON public.chat_pinned_messages
-    FOR DELETE TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+CREATE POLICY "pinned_delete" ON public.chat_pinned_messages FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "call_sessions_select" ON public.call_sessions;
 DROP POLICY IF EXISTS "call_sessions_select_participants" ON public.call_sessions;
-CREATE POLICY "call_sessions_select_participants" ON public.call_sessions
-    FOR SELECT TO authenticated USING (caller_id = auth.uid() OR receiver_id = auth.uid());
+CREATE POLICY "call_sessions_select" ON public.call_sessions FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "call_sessions_insert" ON public.call_sessions;
 DROP POLICY IF EXISTS "call_sessions_insert_caller" ON public.call_sessions;
-CREATE POLICY "call_sessions_insert_caller" ON public.call_sessions
-    FOR INSERT TO authenticated WITH CHECK (caller_id = auth.uid());
+CREATE POLICY "call_sessions_insert" ON public.call_sessions FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "call_sessions_update" ON public.call_sessions;
 DROP POLICY IF EXISTS "call_sessions_update_participants" ON public.call_sessions;
-CREATE POLICY "call_sessions_update_participants" ON public.call_sessions
-    FOR UPDATE TO authenticated USING (caller_id = auth.uid() OR receiver_id = auth.uid());
+CREATE POLICY "call_sessions_update" ON public.call_sessions FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "call_sessions_delete" ON public.call_sessions;
+CREATE POLICY "call_sessions_delete" ON public.call_sessions FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "statuses_select" ON public.user_statuses;
 DROP POLICY IF EXISTS "statuses_select_authenticated" ON public.user_statuses;
-CREATE POLICY "statuses_select_authenticated" ON public.user_statuses
-    FOR SELECT TO authenticated USING (true);
+CREATE POLICY "statuses_select" ON public.user_statuses FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "statuses_insert" ON public.user_statuses;
 DROP POLICY IF EXISTS "statuses_insert_self" ON public.user_statuses;
-CREATE POLICY "statuses_insert_self" ON public.user_statuses
-    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+CREATE POLICY "statuses_insert" ON public.user_statuses FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "statuses_update" ON public.user_statuses;
 DROP POLICY IF EXISTS "statuses_update_self" ON public.user_statuses;
-CREATE POLICY "statuses_update_self" ON public.user_statuses
-    FOR UPDATE TO authenticated
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+CREATE POLICY "statuses_update" ON public.user_statuses FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "statuses_delete" ON public.user_statuses;
 DROP POLICY IF EXISTS "statuses_delete_self" ON public.user_statuses;
-CREATE POLICY "statuses_delete_self" ON public.user_statuses
-    FOR DELETE TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "statuses_delete" ON public.user_statuses FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "status_views_select" ON public.status_views;
 DROP POLICY IF EXISTS "status_views_select_owner_or_viewer" ON public.status_views;
-CREATE POLICY "status_views_select_owner_or_viewer" ON public.status_views
-    FOR SELECT TO authenticated USING (
-        viewer_id = auth.uid()
-        OR EXISTS (
-            SELECT 1 FROM public.user_statuses s WHERE s.id = status_id AND s.user_id = auth.uid()
-        )
-    );
+CREATE POLICY "status_views_select" ON public.status_views FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "status_views_insert" ON public.status_views;
 DROP POLICY IF EXISTS "status_views_insert_viewer" ON public.status_views;
-CREATE POLICY "status_views_insert_viewer" ON public.status_views
-    FOR INSERT TO authenticated WITH CHECK (viewer_id = auth.uid());
+CREATE POLICY "status_views_insert" ON public.status_views FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "reactions_select" ON public.message_reactions;
 DROP POLICY IF EXISTS "reactions_select_member" ON public.message_reactions;
-CREATE POLICY "reactions_select_member" ON public.message_reactions
-    FOR SELECT TO authenticated USING (public.can_access_message(message_id, auth.uid()));
+CREATE POLICY "reactions_select" ON public.message_reactions FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "reactions_insert" ON public.message_reactions;
 DROP POLICY IF EXISTS "reactions_insert_self" ON public.message_reactions;
-CREATE POLICY "reactions_insert_self" ON public.message_reactions
-    FOR INSERT TO authenticated WITH CHECK (
-        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
-    );
+CREATE POLICY "reactions_insert" ON public.message_reactions FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "reactions_delete" ON public.message_reactions;
 DROP POLICY IF EXISTS "reactions_delete_self" ON public.message_reactions;
-CREATE POLICY "reactions_delete_self" ON public.message_reactions
-    FOR DELETE TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "reactions_delete" ON public.message_reactions FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "message_statuses_select" ON public.message_statuses;
 DROP POLICY IF EXISTS "message_statuses_select_member" ON public.message_statuses;
-CREATE POLICY "message_statuses_select_member" ON public.message_statuses
-    FOR SELECT TO authenticated USING (public.can_access_message(message_id, auth.uid()));
+CREATE POLICY "message_statuses_select" ON public.message_statuses FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "message_statuses_insert" ON public.message_statuses;
 DROP POLICY IF EXISTS "message_statuses_insert_self" ON public.message_statuses;
-CREATE POLICY "message_statuses_insert_self" ON public.message_statuses
-    FOR INSERT TO authenticated WITH CHECK (
-        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
-    );
+CREATE POLICY "message_statuses_insert" ON public.message_statuses FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "message_statuses_update" ON public.message_statuses;
 DROP POLICY IF EXISTS "message_statuses_update_self" ON public.message_statuses;
-CREATE POLICY "message_statuses_update_self" ON public.message_statuses
-    FOR UPDATE TO authenticated
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+CREATE POLICY "message_statuses_update" ON public.message_statuses FOR UPDATE USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "hidden_select" ON public.message_deleted_for_users;
 DROP POLICY IF EXISTS "hidden_select_self" ON public.message_deleted_for_users;
-CREATE POLICY "hidden_select_self" ON public.message_deleted_for_users
-    FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "hidden_select" ON public.message_deleted_for_users FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "hidden_insert" ON public.message_deleted_for_users;
 DROP POLICY IF EXISTS "hidden_insert_self" ON public.message_deleted_for_users;
-CREATE POLICY "hidden_insert_self" ON public.message_deleted_for_users
-    FOR INSERT TO authenticated WITH CHECK (
-        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
-    );
+CREATE POLICY "hidden_insert" ON public.message_deleted_for_users FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "hidden_delete" ON public.message_deleted_for_users;
 DROP POLICY IF EXISTS "hidden_delete_self" ON public.message_deleted_for_users;
-CREATE POLICY "hidden_delete_self" ON public.message_deleted_for_users
-    FOR DELETE TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "hidden_delete" ON public.message_deleted_for_users FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "starred_select" ON public.starred_messages;
 DROP POLICY IF EXISTS "starred_select_self" ON public.starred_messages;
-CREATE POLICY "starred_select_self" ON public.starred_messages
-    FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "starred_select" ON public.starred_messages FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "starred_insert" ON public.starred_messages;
 DROP POLICY IF EXISTS "starred_insert_self" ON public.starred_messages;
-CREATE POLICY "starred_insert_self" ON public.starred_messages
-    FOR INSERT TO authenticated WITH CHECK (
-        user_id = auth.uid() AND public.can_access_message(message_id, auth.uid())
-    );
+CREATE POLICY "starred_insert" ON public.starred_messages FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "starred_delete" ON public.starred_messages;
 DROP POLICY IF EXISTS "starred_delete_self" ON public.starred_messages;
-CREATE POLICY "starred_delete_self" ON public.starred_messages
-    FOR DELETE TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "starred_delete" ON public.starred_messages FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "blocked_select" ON public.blocked_users;
 DROP POLICY IF EXISTS "blocked_select_self" ON public.blocked_users;
-CREATE POLICY "blocked_select_self" ON public.blocked_users
-    FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "blocked_select" ON public.blocked_users FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "blocked_insert" ON public.blocked_users;
 DROP POLICY IF EXISTS "blocked_insert_self" ON public.blocked_users;
-CREATE POLICY "blocked_insert_self" ON public.blocked_users
-    FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+CREATE POLICY "blocked_insert" ON public.blocked_users FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "blocked_delete" ON public.blocked_users;
 DROP POLICY IF EXISTS "blocked_delete_self" ON public.blocked_users;
-CREATE POLICY "blocked_delete_self" ON public.blocked_users
-    FOR DELETE TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "blocked_delete" ON public.blocked_users FOR DELETE USING (true);
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('chat-media', 'chat-media', true, null, null)
@@ -670,18 +620,21 @@ CREATE POLICY "Public read access on chat-media"
     USING (bucket_id = 'chat-media');
 
 DROP POLICY IF EXISTS "Authenticated insert on chat-media" ON storage.objects;
-CREATE POLICY "Authenticated insert on chat-media"
-    ON storage.objects FOR INSERT TO authenticated
+DROP POLICY IF EXISTS "Public insert on chat-media" ON storage.objects;
+CREATE POLICY "Public insert on chat-media"
+    ON storage.objects FOR INSERT
     WITH CHECK (bucket_id = 'chat-media');
 
 DROP POLICY IF EXISTS "Owner update on chat-media" ON storage.objects;
-CREATE POLICY "Owner update on chat-media"
-    ON storage.objects FOR UPDATE TO authenticated
+DROP POLICY IF EXISTS "Public update on chat-media" ON storage.objects;
+CREATE POLICY "Public update on chat-media"
+    ON storage.objects FOR UPDATE
     USING (bucket_id = 'chat-media');
 
 DROP POLICY IF EXISTS "Owner delete on chat-media" ON storage.objects;
-CREATE POLICY "Owner delete on chat-media"
-    ON storage.objects FOR DELETE TO authenticated
+DROP POLICY IF EXISTS "Public delete on chat-media" ON storage.objects;
+CREATE POLICY "Public delete on chat-media"
+    ON storage.objects FOR DELETE
     USING (bucket_id = 'chat-media');
 
 DROP POLICY IF EXISTS "Public read access on avatars" ON storage.objects;
@@ -690,18 +643,21 @@ CREATE POLICY "Public read access on avatars"
     USING (bucket_id = 'avatars');
 
 DROP POLICY IF EXISTS "Authenticated insert on avatars" ON storage.objects;
-CREATE POLICY "Authenticated insert on avatars"
-    ON storage.objects FOR INSERT TO authenticated
+DROP POLICY IF EXISTS "Public insert on avatars" ON storage.objects;
+CREATE POLICY "Public insert on avatars"
+    ON storage.objects FOR INSERT
     WITH CHECK (bucket_id = 'avatars');
 
 DROP POLICY IF EXISTS "Owner update on avatars" ON storage.objects;
-CREATE POLICY "Owner update on avatars"
-    ON storage.objects FOR UPDATE TO authenticated
+DROP POLICY IF EXISTS "Public update on avatars" ON storage.objects;
+CREATE POLICY "Public update on avatars"
+    ON storage.objects FOR UPDATE
     USING (bucket_id = 'avatars');
 
 DROP POLICY IF EXISTS "Owner delete on avatars" ON storage.objects;
-CREATE POLICY "Owner delete on avatars"
-    ON storage.objects FOR DELETE TO authenticated
+DROP POLICY IF EXISTS "Public delete on avatars" ON storage.objects;
+CREATE POLICY "Public delete on avatars"
+    ON storage.objects FOR DELETE
     USING (bucket_id = 'avatars');
 
 DO $$ BEGIN

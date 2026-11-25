@@ -235,8 +235,12 @@ export function ChatHeader({
 
         <button
           onClick={async () => {
-            if (user && otherUser) {
-              const session = await createCallSession(chat.id, user.id, otherUser.id, 'video');
+            const recipientId =
+              otherUser?.id ||
+              chat.participants?.find((p) => p.user_id !== user?.id)?.user_id;
+
+            if (user && recipientId) {
+              const session = await createCallSession(chat.id, user.id, recipientId, 'video');
               setActiveCall({ type: 'video', sessionId: session.id });
             } else {
               setActiveCall({ type: 'video' });
@@ -251,8 +255,12 @@ export function ChatHeader({
 
         <button
           onClick={async () => {
-            if (user && otherUser) {
-              const session = await createCallSession(chat.id, user.id, otherUser.id, 'audio');
+            const recipientId =
+              otherUser?.id ||
+              chat.participants?.find((p) => p.user_id !== user?.id)?.user_id;
+
+            if (user && recipientId) {
+              const session = await createCallSession(chat.id, user.id, recipientId, 'audio');
               setActiveCall({ type: 'audio', sessionId: session.id });
             } else {
               setActiveCall({ type: 'audio' });

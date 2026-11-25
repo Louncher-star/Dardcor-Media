@@ -74,11 +74,6 @@ export default function DardcorChatApp() {
       const blocked = await fetchBlockedUserIds(currentUser.id);
       setBlockedUserIds(blocked);
 
-      // Dengarkan panggilan masuk secara Realtime
-      const unsubscribeCalls = subscribeToIncomingCalls(currentUser.id, (call) => {
-        setIncomingCall(call);
-      });
-
       // Dengarkan event sinkronisasi antar-tab
       unsubscribeSync = subscribeToLocalSync(async (event) => {
         if (event.type === 'CHATS_UPDATED') {
@@ -88,24 +83,31 @@ export default function DardcorChatApp() {
       });
 
       setLoading(false);
-
-      return () => {
-        if (unsubscribeCalls) unsubscribeCalls();
-      };
     };
 
-    let cleanupCalls: (() => void) | undefined;
-    initUserAndChats().then((cleanup) => {
-      if (typeof cleanup === 'function') {
-        cleanupCalls = cleanup;
-      }
-    });
+    initUserAndChats();
 
     return () => {
       if (unsubscribeSync) unsubscribeSync();
-      if (cleanupCalls) cleanupCalls();
     };
   }, [router, setUser, setLoading, setChats, setStarredMessageIds, setBlockedUserIds]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const unsubscribeCalls = subscribeToIncomingCalls(
+      user.id,
+      (call) => {
+        setIncomingCall(call);
+      },
+      (dismissedCallId) => {
+        setIncomingCall((current) => (current?.id === dismissedCallId ? null : current));
+      }
+    );
+
+    return () => {
+      if (unsubscribeCalls) unsubscribeCalls();
+    };
+  }, [user?.id]);
 
   const handleAcceptIncomingCall = async (call: CallSession) => {
     await answerCallSession(call.id);

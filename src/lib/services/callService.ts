@@ -33,7 +33,7 @@ export async function createCallSession(
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient();
-      await supabase.from('call_sessions').insert({
+      const { error } = await supabase.from('call_sessions').insert({
         id: sessionId,
         chat_id: toValidUuid(chatId),
         caller_id: toValidUuid(callerId),
@@ -41,8 +41,11 @@ export async function createCallSession(
         call_type: callType,
         status: 'ringing',
       });
+      if (error) {
+        console.error('Error creating call session in Supabase:', error);
+      }
     } catch (err) {
-      console.error('Error creating call session in Supabase:', err);
+      console.error('Exception creating call session in Supabase:', err);
     }
   }
 
@@ -107,7 +110,8 @@ export async function endCallSession(sessionId: string) {
 
 export function subscribeToIncomingCalls(
   userId: string,
-  onIncomingCall: (call: CallSession) => void
+  onIncomingCall: (call: CallSession) => void,
+  onCallDismissed?: (callId: string) => void
 ) {
   if (!isSupabaseConfigured()) return () => {};
 
@@ -115,32 +119,79 @@ export function subscribeToIncomingCalls(
   const safeUserId = toValidUuid(userId);
   const channelName = `call_listener_${safeUserId}_${Date.now()}`;
 
+  (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('call_sessions')
+        .select('*')
+        .eq('receiver_id', safeUserId)
+        .eq('status', 'ringing')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        const recentCall = data[0] as CallSession;
+        const callAgeMs = Date.now() - new Date(recentCall.created_at).getTime();
+        if (callAgeMs < 45000) {
+          try {
+            const { data: callerProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', recentCall.caller_id)
+              .maybeSingle();
+
+            if (callerProfile) {
+              recentCall.caller = callerProfile as Profile;
+            }
+          } catch {}
+          onIncomingCall(recentCall);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking active ringing call:', err);
+    }
+  })();
+
   const channel = supabase
     .channel(channelName)
     .on(
       'postgres_changes',
       {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'call_sessions',
-        filter: `receiver_id=eq.${safeUserId}`,
       },
       async (payload) => {
-        const newCall = payload.new as CallSession;
-        if (newCall.status === 'ringing') {
-          // Muat profil penelpon
+        const call = (payload.new || payload.old) as CallSession;
+        if (!call) return;
+
+        const isRecipient =
+          call.receiver_id === safeUserId ||
+          call.receiver_id === userId ||
+          call.receiver_id?.toLowerCase() === safeUserId.toLowerCase() ||
+          call.receiver_id?.toLowerCase() === userId.toLowerCase();
+
+        if (!isRecipient) return;
+
+        if (call.status === 'ringing') {
           try {
             const { data: callerProfile } = await supabase
               .from('profiles')
               .select('*')
-              .eq('id', newCall.caller_id)
+              .eq('id', call.caller_id)
               .maybeSingle();
 
             if (callerProfile) {
-              newCall.caller = callerProfile as Profile;
+              call.caller = callerProfile as Profile;
             }
           } catch {}
-          onIncomingCall(newCall);
+          onIncomingCall(call);
+        } else if (
+          call.status === 'ended' ||
+          call.status === 'rejected' ||
+          call.status === 'missed'
+        ) {
+          onCallDismissed?.(call.id);
         }
       }
     )
