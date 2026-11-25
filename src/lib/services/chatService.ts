@@ -1,4 +1,4 @@
-import { Chat, Message, Profile } from '@/types';
+import { Chat, Message, Profile, PinnedMessage } from '@/types';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { toValidUuid } from '@/lib/utils/uuidUtils';
 
@@ -108,6 +108,7 @@ export async function fetchUserChats(userId: string): Promise<Chat[]> {
               is_pinned: Boolean(myPart?.is_pinned),
               is_archived: Boolean(myPart?.is_archived),
               is_muted: Boolean(myPart?.is_muted),
+              is_locked: Boolean(myPart?.is_locked),
               my_role: myPart?.role || 'member',
               disappearing_seconds: Number(chat.disappearing_seconds) || 0,
             };
@@ -424,6 +425,7 @@ export interface ChatPrefs {
   is_pinned?: boolean;
   is_archived?: boolean;
   is_muted?: boolean;
+  is_locked?: boolean;
 }
 
 export async function updateChatPrefs(chatId: string, userId: string, prefs: ChatPrefs) {
@@ -732,4 +734,226 @@ export async function removeChatParticipant(chatId: string, userId: string) {
     console.error('Error removing participant:', err);
     throw err;
   }
+}
+
+// 15. Edit Pesan (Message Editing ala WhatsApp 15 menit)
+export async function editMessage(chatId: string, messageId: string, newContent: string) {
+  const editedAt = new Date().toISOString();
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('messages')
+        .update({
+          content: newContent,
+          is_edited: true,
+          edited_at: editedAt,
+          updated_at: editedAt,
+        })
+        .eq('id', messageId);
+    } catch (err) {
+      console.error('Error editing message in Supabase:', err);
+    }
+  }
+
+  // Update local storage
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `${MESSAGES_PREFIX}${chatId}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const msgs: Message[] = JSON.parse(raw);
+        const updated = msgs.map((m) =>
+          m.id === messageId ? { ...m, content: newContent, is_edited: true, edited_at: editedAt } : m
+        );
+        localStorage.setItem(key, JSON.stringify(updated));
+      }
+    } catch {}
+  }
+
+  broadcastLocalSync('MESSAGE_EDITED', { chatId, messageId, content: newContent, editedAt });
+}
+
+// 16. In-Chat Pinned Messages (Sematkan Pesan di Obrolan 24h/7d/30d)
+export async function fetchPinnedMessages(chatId: string): Promise<PinnedMessage[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('chat_pinned_messages')
+        .select('*, message:messages(*)')
+        .eq('chat_id', toValidUuid(chatId))
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        return data as PinnedMessage[];
+      }
+    } catch (err) {
+      console.error('Error fetching pinned messages:', err);
+    }
+  }
+  return [];
+}
+
+export async function pinMessage(chatId: string, messageId: string, pinnedBy: string, durationHours: number = 24) {
+  const expiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase.from('chat_pinned_messages').upsert({
+        chat_id: toValidUuid(chatId),
+        message_id: messageId,
+        pinned_by: toValidUuid(pinnedBy),
+        expires_at: expiresAt,
+      });
+    } catch (err) {
+      console.error('Error pinning message in Supabase:', err);
+    }
+  }
+  broadcastLocalSync('PINNED_MESSAGES_UPDATED', { chatId });
+}
+
+export async function unpinMessage(chatId: string, messageId: string) {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('chat_pinned_messages')
+        .delete()
+        .eq('chat_id', toValidUuid(chatId))
+        .eq('message_id', messageId);
+    } catch (err) {
+      console.error('Error unpinning message:', err);
+    }
+  }
+  broadcastLocalSync('PINNED_MESSAGES_UPDATED', { chatId });
+}
+
+export async function getOrGenerateGroupInviteCode(chatId: string): Promise<string> {
+  const safeChatId = toValidUuid(chatId);
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('chats')
+        .select('invite_code')
+        .eq('id', safeChatId)
+        .single();
+
+      if (data?.invite_code) {
+        return data.invite_code;
+      }
+
+      // Buat kode unik acak 8 karakter
+      const newCode = Math.random().toString(36).substring(2, 10).toLowerCase();
+      await supabase
+        .from('chats')
+        .update({ invite_code: newCode })
+        .eq('id', safeChatId);
+
+      return newCode;
+    } catch (err) {
+      console.error('Error generating invite code:', err);
+    }
+  }
+
+  return `dardcor_${chatId.slice(0, 8)}`;
+}
+
+export async function fetchGroupByInviteCode(
+  code: string
+): Promise<{ chat: Chat; participantCount: number } | null> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data: chatData, error } = await supabase
+        .from('chats')
+        .select('*')
+        .eq('invite_code', code)
+        .single();
+
+      if (!error && chatData) {
+        const { count } = await supabase
+          .from('chat_participants')
+          .select('*', { count: 'exact', head: true })
+          .eq('chat_id', chatData.id);
+
+        return {
+          chat: chatData as Chat,
+          participantCount: count || 1,
+        };
+      }
+    } catch (err) {
+      console.error('Error fetching group by invite code:', err);
+    }
+  }
+  return null;
+}
+
+export async function joinGroupByInviteCode(
+  code: string,
+  user: Profile
+): Promise<Chat | null> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const safeUserId = toValidUuid(user.id);
+
+      const { data: chatData, error } = await supabase
+        .from('chats')
+        .select('*')
+        .eq('invite_code', code)
+        .single();
+
+      if (error || !chatData) return null;
+
+      // Cek apakah sudah terdaftar
+      const { data: existing } = await supabase
+        .from('chat_participants')
+        .select('*')
+        .eq('chat_id', chatData.id)
+        .eq('user_id', safeUserId)
+        .maybeSingle();
+
+      if (!existing) {
+        await supabase.from('chat_participants').insert({
+          id: toValidUuid(`cp_${safeUserId}_${chatData.id}`),
+          chat_id: chatData.id,
+          user_id: safeUserId,
+          role: 'member',
+          is_pinned: false,
+          is_archived: false,
+          is_muted: false,
+        });
+      }
+
+      broadcastLocalSync('CHATS_UPDATED', { chatId: chatData.id });
+      return chatData as Chat;
+    } catch (err) {
+      console.error('Error joining group by invite code:', err);
+    }
+  }
+  return null;
+}
+
+export async function updateGroupPermissions(
+  chatId: string,
+  permissions: {
+    only_admins_can_message?: boolean;
+    only_admins_can_edit_info?: boolean;
+  }
+) {
+  const safeChatId = toValidUuid(chatId);
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('chats')
+        .update(permissions)
+        .eq('id', safeChatId);
+    } catch (err) {
+      console.error('Error updating group permissions:', err);
+    }
+  }
+  broadcastLocalSync('CHATS_UPDATED', { chatId });
 }

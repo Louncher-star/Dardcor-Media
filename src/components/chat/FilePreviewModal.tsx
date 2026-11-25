@@ -25,7 +25,12 @@ interface FilePreviewModalProps {
   isUploading: boolean;
   uploadStatus?: string;
   onClose: () => void;
-  onSend: (file: File, type: 'image' | 'video' | 'audio' | 'document', caption: string) => void;
+  onSend: (
+    file: File,
+    type: 'image' | 'video' | 'audio' | 'document',
+    caption: string,
+    isViewOnce?: boolean
+  ) => void;
 }
 
 export function FilePreviewModal({
@@ -40,6 +45,7 @@ export function FilePreviewModal({
   const { theme } = useChatStore();
   const [caption, setCaption] = useState('');
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [isViewOnce, setIsViewOnce] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
 
   const previewUrl = useMemo(() => {
@@ -68,7 +74,7 @@ export function FilePreviewModal({
 
   const handleSend = () => {
     if (isUploading) return;
-    onSend(file, fileType, caption.trim());
+    onSend(file, fileType, caption.trim(), isViewOnce);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -249,6 +255,22 @@ export function FilePreviewModal({
             placeholder="Tambah keterangan..."
             className="flex-1 bg-transparent text-sm text-white placeholder:text-white/40 px-3 py-2 focus:outline-none"
           />
+
+          {/* View Once Toggle Button ala WhatsApp */}
+          {(fileType === 'image' || fileType === 'video') && (
+            <button
+              type="button"
+              onClick={() => setIsViewOnce(!isViewOnce)}
+              className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs transition-colors shrink-0 ml-1 ${
+                isViewOnce
+                  ? 'bg-[#00a884] text-white shadow-md shadow-[#00a884]/30'
+                  : 'text-white/60 hover:text-white border border-white/20'
+              }`}
+              title={isViewOnce ? 'Pesan sekali lihat diaktifkan' : 'Kirim sebagai sekali lihat'}
+            >
+              1
+            </button>
+          )}
         </div>
 
         {/* Send Button with Progress Feedback */}

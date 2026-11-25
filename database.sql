@@ -783,4 +783,147 @@ DO $ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $;
 
+-- ============================================================================
+-- 14. FITUR MUTAKHIR DARDCOR MEDIA MELEBIHI WHATSAPP ASLI (ENTERPRISE EDITION)
+-- ============================================================================
+
+-- A. Pesan: Edit, Sekali Lihat (View Once), dan Pratinjau Tautan Web
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_view_once BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_opened BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS link_preview JSONB;
+
+-- B. Tabel Pesan Tersemat di Obrolan (Pinned Messages inside Chat)
+CREATE TABLE IF NOT EXISTS public.chat_pinned_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id UUID NOT NULL REFERENCES public.chats(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+    pinned_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(chat_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pinned_chat ON public.chat_pinned_messages(chat_id);
+
+-- C. Tabel Sinyal Panggilan WebRTC P2P Realtime (Audio & Video)
+CREATE TABLE IF NOT EXISTS public.call_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id UUID NOT NULL REFERENCES public.chats(id) ON DELETE CASCADE,
+    caller_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    receiver_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    call_type TEXT NOT NULL CHECK (call_type IN ('audio', 'video')),
+    status TEXT NOT NULL DEFAULT 'ringing' CHECK (status IN ('ringing', 'accepted', 'rejected', 'ended', 'missed')),
+    sdp_offer TEXT,
+    sdp_answer TEXT,
+    ice_candidates JSONB DEFAULT '[]'::jsonb,
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_call_receiver ON public.call_sessions(receiver_id, status);
+CREATE INDEX IF NOT EXISTS idx_call_chat ON public.call_sessions(chat_id);
+
+-- D. Tabel Pemirsa Cerita / Status 24 Jam (Who Viewed My Status)
+CREATE TABLE IF NOT EXISTS public.status_views (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    status_id UUID NOT NULL REFERENCES public.user_statuses(id) ON DELETE CASCADE,
+    viewer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(status_id, viewer_id)
+);
+CREATE INDEX IF NOT EXISTS idx_status_views_status ON public.status_views(status_id);
+
+-- E. Pengaturan Grup Tingkat Lanjut & Tautan Undangan
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS invite_code TEXT UNIQUE;
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS only_admins_can_message BOOLEAN DEFAULT false;
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS only_admins_can_edit_info BOOLEAN DEFAULT false;
+
+-- F. Kunci Obrolan Rahasia (Locked Chats)
+ALTER TABLE public.chat_participants ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;
+
+-- G. Keamanan Database Tingkat Tertinggi: Anti-Spam & Rate Limiter PostgreSQL Trigger
+CREATE OR REPLACE FUNCTION public.check_message_rate_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+    msg_count INT;
+BEGIN
+    SELECT COUNT(*) INTO msg_count
+    FROM public.messages
+    WHERE sender_id = NEW.sender_id
+      AND created_at > now() - interval '2 seconds';
+      
+    IF msg_count > 8 THEN
+        RAISE EXCEPTION 'Aktivitas pengiriman pesan terlalu cepat. Silakan tunggu beberapa detik (Anti-Spam Protection).';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_anti_spam_messages ON public.messages;
+CREATE TRIGGER trg_anti_spam_messages
+    BEFORE INSERT ON public.messages
+    FOR EACH ROW EXECUTE FUNCTION public.check_message_rate_limit();
+
+-- H. Row Level Security (RLS) untuk Tabel-Tabel Baru
+ALTER TABLE public.chat_pinned_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.call_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.status_views ENABLE ROW LEVEL SECURITY;
+
+-- 1. Pinned Messages RLS
+DROP POLICY IF EXISTS "pinned_select_member" ON public.chat_pinned_messages;
+CREATE POLICY "pinned_select_member" ON public.chat_pinned_messages
+    FOR SELECT TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+
+DROP POLICY IF EXISTS "pinned_insert_member" ON public.chat_pinned_messages;
+CREATE POLICY "pinned_insert_member" ON public.chat_pinned_messages
+    FOR INSERT TO authenticated WITH CHECK (public.is_chat_member(chat_id, auth.uid()) AND pinned_by = auth.uid());
+
+DROP POLICY IF EXISTS "pinned_delete_member" ON public.chat_pinned_messages;
+CREATE POLICY "pinned_delete_member" ON public.chat_pinned_messages
+    FOR DELETE TO authenticated USING (public.is_chat_member(chat_id, auth.uid()));
+
+-- 2. Call Sessions RLS (Hanya penelpon dan penerima yang dapat mengakses)
+DROP POLICY IF EXISTS "call_sessions_select_participants" ON public.call_sessions;
+CREATE POLICY "call_sessions_select_participants" ON public.call_sessions
+    FOR SELECT TO authenticated USING (caller_id = auth.uid() OR receiver_id = auth.uid());
+
+DROP POLICY IF EXISTS "call_sessions_insert_caller" ON public.call_sessions;
+CREATE POLICY "call_sessions_insert_caller" ON public.call_sessions
+    FOR INSERT TO authenticated WITH CHECK (caller_id = auth.uid());
+
+DROP POLICY IF EXISTS "call_sessions_update_participants" ON public.call_sessions;
+CREATE POLICY "call_sessions_update_participants" ON public.call_sessions
+    FOR UPDATE TO authenticated USING (caller_id = auth.uid() OR receiver_id = auth.uid());
+
+-- 3. Status Views RLS (Hanya pemilik status dan yang melihat yang dapat mengakses)
+DROP POLICY IF EXISTS "status_views_select_owner_or_viewer" ON public.status_views;
+CREATE POLICY "status_views_select_owner_or_viewer" ON public.status_views
+    FOR SELECT TO authenticated USING (
+        viewer_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM public.user_statuses s WHERE s.id = status_id AND s.user_id = auth.uid()
+        )
+    );
+
+DROP POLICY IF EXISTS "status_views_insert_viewer" ON public.status_views;
+CREATE POLICY "status_views_insert_viewer" ON public.status_views
+    FOR INSERT TO authenticated WITH CHECK (viewer_id = auth.uid());
+
+-- I. Replikasi Realtime Supabase untuk Sinyal Panggilan & Sematan Pesan
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.call_sessions;
+EXCEPTION WHEN others THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_pinned_messages;
+EXCEPTION WHEN others THEN null;
+END $$;
+
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.status_views;
+EXCEPTION WHEN others THEN null;
+END $$;
+
 

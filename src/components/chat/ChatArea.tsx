@@ -14,16 +14,18 @@ import { ChatSearchBar } from './ChatSearchBar';
 import { ForwardMessageModal } from './ForwardMessageModal';
 import { StarredMessagesDrawer } from './StarredMessagesDrawer';
 import { CreatePollModal } from './CreatePollModal';
+import { PinnedMessagesBanner } from './PinnedMessagesBanner';
 import { usePresence } from '@/lib/hooks/usePresence';
 import {
   fetchChatMessages,
   fetchUserChats,
   subscribeToLocalSync,
   appendMessage,
+  fetchPinnedMessages,
 } from '@/lib/services/chatService';
 import { uploadChatMedia } from '@/lib/utils/mediaUtils';
 import { playMessageSentSound } from '@/lib/utils/soundUtils';
-import { Message, PollData } from '@/types';
+import { Message, PollData, PinnedMessage } from '@/types';
 import { UploadCloud } from 'lucide-react';
 
 export function ChatArea() {
@@ -52,6 +54,7 @@ export function ChatArea() {
   const [searchIndex, setSearchIndex] = useState(0);
   const [isStarredOpen, setIsStarredOpen] = useState(false);
   const [isCreatePollOpen, setIsCreatePollOpen] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
 
   // Acuan waktu untuk menyaring pesan sementara; Date.now() tidak boleh dipanggil saat render
@@ -78,14 +81,26 @@ export function ChatArea() {
       setMessages(activeChatId, msgs);
     };
 
-    loadMessages();
+    const loadPinned = async () => {
+      const pins = await fetchPinnedMessages(activeChatId);
+      setPinnedMessages(pins);
+    };
 
-    // Dengarkan pembaruan pesan dari tab lain
+    loadMessages();
+    loadPinned();
+
+    // Dengarkan pembaruan pesan dan sematan dari tab lain
     const unsubscribe = subscribeToLocalSync((event) => {
-      if (event.type === 'MESSAGES_UPDATED') {
+      if (event.type === 'MESSAGES_UPDATED' || event.type === 'MESSAGE_EDITED') {
         const payload = event.payload as { chatId: string };
         if (payload.chatId === activeChatId) {
           loadMessages();
+        }
+      }
+      if (event.type === 'PINNED_MESSAGES_UPDATED') {
+        const payload = event.payload as { chatId: string };
+        if (payload.chatId === activeChatId) {
+          loadPinned();
         }
       }
     });
@@ -97,7 +112,8 @@ export function ChatArea() {
   const handleSendMediaWithCaption = async (
     file: File,
     type: 'image' | 'video' | 'audio' | 'document',
-    caption: string
+    caption: string,
+    isViewOnce?: boolean
   ) => {
     if (!user || !activeChat) return;
     setIsUploadingMedia(true);
@@ -149,6 +165,8 @@ export function ChatArea() {
         media_name: file.name,
         media_size: file.size,
         media_mime_type: file.type || 'application/octet-stream',
+        is_view_once: isViewOnce || false,
+        is_opened: false,
         is_deleted_for_all: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -319,6 +337,21 @@ export function ChatArea() {
           setSearchIndex(0);
         }}
         onOpenStarred={() => setIsStarredOpen(true)}
+      />
+
+      {/* WhatsApp In-Chat Pinned Messages Banner */}
+      <PinnedMessagesBanner
+        pinnedMessages={pinnedMessages}
+        chatId={activeChat.id}
+        onJumpToMessage={(id) => {
+          document.getElementById(`msg-${id}`)?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+        }}
+        onRefresh={() => {
+          fetchPinnedMessages(activeChat.id).then(setPinnedMessages);
+        }}
       />
 
       {isSearchOpen && (

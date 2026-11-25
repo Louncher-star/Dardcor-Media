@@ -20,6 +20,7 @@ import {
 import { Chat } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { CallModal } from './CallModal';
+import { createCallSession, endCallSession } from '@/lib/services/callService';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { formatChatListTime } from '@/lib/utils/dateUtils';
@@ -68,7 +69,7 @@ export function ChatHeader({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDisappearing, setShowDisappearing] = useState(false);
-  const [activeCall, setActiveCall] = useState<{ type: 'audio' | 'video' } | null>(null);
+  const [activeCall, setActiveCall] = useState<{ type: 'audio' | 'video'; sessionId?: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -233,7 +234,14 @@ export function ChatHeader({
         </button>
 
         <button
-          onClick={() => setActiveCall({ type: 'video' })}
+          onClick={async () => {
+            if (user && otherUser) {
+              const session = await createCallSession(chat.id, user.id, otherUser.id, 'video');
+              setActiveCall({ type: 'video', sessionId: session.id });
+            } else {
+              setActiveCall({ type: 'video' });
+            }
+          }}
           title="Panggilan video"
           aria-label="Panggilan video"
           className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition"
@@ -242,7 +250,14 @@ export function ChatHeader({
         </button>
 
         <button
-          onClick={() => setActiveCall({ type: 'audio' })}
+          onClick={async () => {
+            if (user && otherUser) {
+              const session = await createCallSession(chat.id, user.id, otherUser.id, 'audio');
+              setActiveCall({ type: 'audio', sessionId: session.id });
+            } else {
+              setActiveCall({ type: 'audio' });
+            }
+          }}
           title="Panggilan suara"
           aria-label="Panggilan suara"
           className="p-2 rounded-full hover:bg-[var(--wa-hover)] hover:text-[var(--wa-text-primary)] transition"
@@ -367,7 +382,12 @@ export function ChatHeader({
           callType={activeCall.type}
           contact={otherUser || null}
           chatName={chatName}
-          onClose={() => setActiveCall(null)}
+          onClose={() => {
+            if (activeCall?.sessionId) {
+              endCallSession(activeCall.sessionId);
+            }
+            setActiveCall(null);
+          }}
         />
       )}
     </header>

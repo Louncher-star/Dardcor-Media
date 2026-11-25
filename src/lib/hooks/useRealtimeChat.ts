@@ -14,6 +14,16 @@ export function useRealtimeChat(activeChatId: string | null) {
   const { user } = useAuthStore();
 
   useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
     if (!isSupabaseConfigured() || !user) return;
 
     const safeUserId = toValidUuid(user.id);
@@ -64,6 +74,27 @@ export function useRealtimeChat(activeChatId: string | null) {
               // Bunyikan notifikasi jika pesan dari orang lain
               if (newMessage.sender_id !== safeUserId && newMessage.sender_id !== user.id) {
                 playMessageReceivedSound();
+
+                // Notifikasi Desktop / Browser jika tab tidak aktif atau jendela diminimalkan
+                if (typeof window !== 'undefined' && 'Notification' in window) {
+                  if (Notification.permission === 'granted' && document.hidden) {
+                    const senderName =
+                      newMessage.sender?.display_name ||
+                      newMessage.sender?.username ||
+                      'Dardcor Media';
+                    const bodyText =
+                      newMessage.content ||
+                      (newMessage.media_name
+                        ? `📎 ${newMessage.media_name}`
+                        : 'Mengirim lampiran media');
+                    try {
+                      new Notification(senderName, {
+                        body: bodyText,
+                        icon: newMessage.sender?.avatar_url || '/icons/icon-192x192.png',
+                      });
+                    } catch {}
+                  }
+                }
 
                 // Jika chat ini sedang dibuka, tandai pesan dibaca
                 if (activeChatId === newMessage.chat_id) {

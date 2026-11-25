@@ -28,6 +28,49 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
+}
+
+export interface PinnedMessage {
+  id: string;
+  chat_id: string;
+  message_id: string;
+  pinned_by: string;
+  expires_at?: string | null;
+  created_at: string;
+  message?: Message;
+}
+
+export interface CallSession {
+  id: string;
+  chat_id: string;
+  caller_id: string;
+  receiver_id: string;
+  call_type: 'audio' | 'video';
+  status: 'ringing' | 'accepted' | 'rejected' | 'ended' | 'missed';
+  sdp_offer?: string | null;
+  sdp_answer?: string | null;
+  ice_candidates?: any[];
+  started_at?: string | null;
+  ended_at?: string | null;
+  created_at: string;
+  caller?: Profile;
+  receiver?: Profile;
+}
+
+export interface StatusView {
+  id: string;
+  status_id: string;
+  viewer_id: string;
+  viewed_at: string;
+  viewer?: Profile;
+}
+
 export interface ChatParticipant {
   id: string;
   chat_id: string;
@@ -36,6 +79,7 @@ export interface ChatParticipant {
   is_pinned: boolean;
   is_archived: boolean;
   is_muted: boolean;
+  is_locked?: boolean;
   last_read_at: string;
   joined_at: string;
   profile?: Profile;
@@ -71,6 +115,11 @@ export interface Message {
   poll_data?: PollData | null;
   reply_to_id?: string | null;
   is_deleted_for_all: boolean;
+  is_edited?: boolean;
+  edited_at?: string | null;
+  is_view_once?: boolean;
+  is_opened?: boolean;
+  link_preview?: LinkPreview | null;
   created_at: string;
   updated_at: string;
   sender?: Profile;
@@ -96,6 +145,10 @@ export interface Chat {
   is_pinned?: boolean;
   is_archived?: boolean;
   is_muted?: boolean;
+  is_locked?: boolean;
+  invite_code?: string | null;
+  only_admins_can_message?: boolean;
+  only_admins_can_edit_info?: boolean;
   my_role?: ParticipantRole;
   disappearing_seconds?: number;
 }

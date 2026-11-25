@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ban, Smile, Plus, Send, Mic, X } from 'lucide-react';
+import { Ban, Smile, Plus, Send, Mic, X, Shield } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { useAudioRecorder } from '@/lib/hooks/useAudioRecorder';
@@ -243,6 +243,23 @@ export function ChatInputBar({
           <span>
             Anda memblokir kontak ini. Buka blokir di Info Kontak untuk dapat mengirim pesan.
           </span>
+        </div>
+      </footer>
+    );
+  }
+
+  const isOnlyAdminsCanMessage = Boolean(
+    currentChat?.is_group &&
+    currentChat?.only_admins_can_message &&
+    currentChat?.my_role !== 'admin'
+  );
+
+  if (isOnlyAdminsCanMessage) {
+    return (
+      <footer className="bg-[var(--wa-header-bg)] border-t border-[var(--wa-border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shrink-0 z-20">
+        <div className="flex items-center justify-center gap-2 text-xs text-[var(--wa-text-secondary)] text-center">
+          <Shield size={16} className="text-[#a855f7] shrink-0" />
+          <span>Hanya admin yang dapat mengirim pesan ke grup ini.</span>
         </div>
       </footer>
     );

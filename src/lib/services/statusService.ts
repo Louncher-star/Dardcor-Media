@@ -1,4 +1,4 @@
-import { Profile, UserStatus } from '@/types';
+import { Profile, UserStatus, StatusView } from '@/types';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { toValidUuid } from '@/lib/utils/uuidUtils';
 
@@ -119,4 +119,79 @@ export async function deleteStatus(statusId: string, userId: string) {
   }
 
   writeLocalStatuses(readLocalStatuses().filter((status) => status.id !== statusId));
+}
+
+export async function recordStatusView(statusId: string, viewer: Profile) {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('status_views')
+        .upsert(
+          {
+            status_id: statusId,
+            viewer_id: toValidUuid(viewer.id),
+            viewed_at: new Date().toISOString(),
+          },
+          { onConflict: 'status_id,viewer_id' }
+        );
+    } catch (err) {
+      console.warn('Gagal mencatat pemirsa status ke cloud:', err);
+    }
+  }
+
+  // Fallback penyimpanan lokal
+  try {
+    const raw = localStorage.getItem('dardcor_status_views') || '{}';
+    const viewsMap = JSON.parse(raw);
+    if (!viewsMap[statusId]) viewsMap[statusId] = [];
+    if (!viewsMap[statusId].some((v: any) => v.viewer_id === viewer.id)) {
+      viewsMap[statusId].push({
+        id: `view_${Date.now()}_${Math.random()}`,
+        status_id: statusId,
+        viewer_id: viewer.id,
+        viewed_at: new Date().toISOString(),
+        viewer: viewer,
+      });
+      localStorage.setItem('dardcor_status_views', JSON.stringify(viewsMap));
+    }
+  } catch {}
+}
+
+export async function fetchStatusViewers(statusId: string): Promise<StatusView[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('status_views')
+        .select('*')
+        .eq('status_id', statusId)
+        .order('viewed_at', { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        const viewerIds = data.map((v) => v.viewer_id);
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', viewerIds);
+
+        const profileMap = new Map((profiles || []).map((p) => [p.id, p as Profile]));
+        return data.map((v) => ({
+          ...v,
+          viewer: profileMap.get(v.viewer_id),
+        })) as StatusView[];
+      }
+    } catch (err) {
+      console.warn('Gagal mengambil pemirsa status dari cloud:', err);
+    }
+  }
+
+  // Fallback penyimpanan lokal
+  try {
+    const raw = localStorage.getItem('dardcor_status_views') || '{}';
+    const viewsMap = JSON.parse(raw);
+    return viewsMap[statusId] || [];
+  } catch {
+    return [];
+  }
 }

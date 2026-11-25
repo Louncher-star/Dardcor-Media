@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Archive, MessageSquare, Search } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Archive, Lock, MessageSquare, Search } from 'lucide-react';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { ChatListItem } from './ChatListItem';
+import { LockedChatsModal } from '@/components/chat/LockedChatsModal';
 
 interface ChatListProps {
   onStartNewChat: () => void;
@@ -12,12 +13,15 @@ interface ChatListProps {
 
 export function ChatList({ onStartNewChat, onOpenArchived }: ChatListProps) {
   const { chats, activeChatId, setActiveChatId, searchQuery, chatFilter } = useChatStore();
+  const [isLockedModalOpen, setIsLockedModalOpen] = useState(false);
 
   const archivedCount = chats.filter((chat) => chat.is_archived).length;
+  const lockedCount = chats.filter((chat) => chat.is_locked).length;
 
   const filteredChats = useMemo(() => {
     const list = chats.filter((chat) => {
       if (chat.is_archived) return false;
+      if (chat.is_locked) return false;
 
       const chatName = chat.is_group
         ? chat.group_name || ''
@@ -50,6 +54,26 @@ export function ChatList({ onStartNewChat, onOpenArchived }: ChatListProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Tombol Obrolan Terkunci */}
+      {lockedCount > 0 && chatFilter === 'all' && !searchQuery && (
+        <button
+          onClick={() => setIsLockedModalOpen(true)}
+          className="w-full min-h-[64px] px-[13px] py-2 flex items-center gap-3 hover:bg-[var(--wa-hover)] transition text-left shrink-0 border-b border-[var(--wa-border)]/30"
+        >
+          <div className="w-12 h-12 rounded-full bg-purple-500/15 text-[#c084fc] flex items-center justify-center shrink-0">
+            <Lock size={20} />
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+            <span className="block text-[15px] font-medium text-[var(--wa-text-primary)]">
+              Obrolan Terkunci
+            </span>
+            <span className="min-w-[20px] h-5 px-1.5 bg-[#8b5cf6] text-white text-[11px] font-semibold rounded-full flex items-center justify-center tabular-nums">
+              {lockedCount}
+            </span>
+          </div>
+        </button>
+      )}
+
       {archivedCount > 0 && chatFilter === 'all' && !searchQuery && (
         <button
           onClick={onOpenArchived}
@@ -119,6 +143,13 @@ export function ChatList({ onStartNewChat, onOpenArchived }: ChatListProps) {
           ))}
         </div>
       )}
+
+      {/* Modal Kunci Obrolan Rahasia */}
+      <LockedChatsModal
+        isOpen={isLockedModalOpen}
+        onClose={() => setIsLockedModalOpen(false)}
+        onSelectChat={(id) => setActiveChatId(id)}
+      />
     </div>
   );
 }

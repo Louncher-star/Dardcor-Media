@@ -7,22 +7,26 @@ import {
   CheckCheck,
   ChevronDown,
   Copy,
+  Edit3,
   Forward,
+  Pin,
   Reply,
   Smile,
   Star,
   Trash2,
 } from 'lucide-react';
-import { Message } from '@/types';
+import { Message, LinkPreview } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { formatMessageTime } from '@/lib/utils/dateUtils';
 import { MediaMessage } from './MediaMessage';
 import { VoiceMessage } from './VoiceMessage';
 import { PollMessageBubble } from './PollMessageBubble';
+import { EditMessageModal } from './EditMessageModal';
+import { LinkPreviewCard } from './LinkPreviewCard';
 import { MessageReactions, ReactionPickerBar } from './MessageReactions';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
-import { setStarredMessage } from '@/lib/services/chatService';
+import { setStarredMessage, pinMessage } from '@/lib/services/chatService';
 import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
@@ -55,12 +59,37 @@ export function MessageBubble({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartX = useRef<number>(0);
 
   const isStarred = starredMessageIds.includes(message.id);
+  const [clientPreview, setClientPreview] = useState<LinkPreview | null>(
+    message.link_preview || null
+  );
+
+  useEffect(() => {
+    if (clientPreview || !message.content || message.message_type !== 'text') return;
+    const urlMatch = message.content.match(/https?:\/\/[^\s]+/i);
+    if (!urlMatch) return;
+
+    let alive = true;
+    const url = urlMatch[0];
+    fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive && data && !data.error) {
+          setClientPreview(data);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      alive = false;
+    };
+  }, [message.content, message.message_type, clientPreview]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -297,11 +326,21 @@ export function MessageBubble({
                   : message.content}
               </div>
             )}
+
+            {/* Link Preview Card */}
+            {(clientPreview || message.link_preview) && (
+              <LinkPreviewCard preview={clientPreview || message.link_preview!} isMe={isMe} />
+            )}
           </>
         )}
 
         {/* Time and Status Ticks (Bottom Right of Bubble) */}
         <div className="flex items-center justify-end gap-1 text-[11px] text-[var(--wa-text-secondary)] mt-1 -mb-0.5 select-none ml-auto float-right clear-both whitespace-nowrap">
+          {message.is_edited && (
+            <span className="text-[10px] text-[var(--wa-text-secondary)] italic">
+              (diedit)
+            </span>
+          )}
           {isStarred && <Star size={11} className="text-amber-400 fill-amber-400" />}
           <span>{formatMessageTime(message.created_at)}</span>
           {renderTicks()}
@@ -379,6 +418,35 @@ export function MessageBubble({
                     <span>{isStarred ? 'Hapus bintang' : 'Bintang'}</span>
                   </button>
 
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (user) {
+                        pinMessage(message.chat_id, message.id, user.id, 24);
+                      }
+                    }}
+                    className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--wa-hover)] text-left transition"
+                  >
+                    <Pin size={14} className="rotate-45" />
+                    <span>Sematkan Pesan</span>
+                  </button>
+
+                  {/* Edit Pesan (hanya untuk pengirim dalam 15 menit) */}
+                  {isMe &&
+                    message.message_type === 'text' &&
+                    Date.now() - new Date(message.created_at).getTime() < 15 * 60 * 1000 && (
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setIsEditModalOpen(true);
+                        }}
+                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--wa-hover)] text-left transition text-[#00a884]"
+                      >
+                        <Edit3 size={14} />
+                        <span>Edit Pesan</span>
+                      </button>
+                    )}
+
                   <hr className="my-1 border-[var(--wa-border)]" />
 
                   <button
@@ -411,6 +479,13 @@ export function MessageBubble({
           isMe={isMe}
         />
       </div>
+
+      {/* WhatsApp Message Editing Dialog */}
+      <EditMessageModal
+        isOpen={isEditModalOpen}
+        message={message}
+        onClose={() => setIsEditModalOpen(false)}
+      />
     </div>
   );
 }

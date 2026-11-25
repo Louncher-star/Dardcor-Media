@@ -9,11 +9,14 @@ import {
   Bell,
   BellOff,
   Check,
+  Copy,
   Download,
   FileText,
   ImageIcon,
+  Link as LinkIcon,
   LogOut,
   Search,
+  ShieldCheck,
   Star,
   Trash2,
   UserMinus,
@@ -33,6 +36,8 @@ import {
   setUserBlocked,
   updateChatPrefs,
   updateChatSettings,
+  getOrGenerateGroupInviteCode,
+  updateGroupPermissions,
 } from '@/lib/services/chatService';
 import { downloadMediaFile } from '@/lib/utils/mediaUtils';
 import { formatChatListTime } from '@/lib/utils/dateUtils';
@@ -80,6 +85,43 @@ export function ChatInfoDrawer({
   const isAdmin =
     chat.my_role === 'admin' ||
     Boolean(chat.participants?.find((p) => p.user_id === user?.id)?.role === 'admin');
+
+  const [inviteCode, setInviteCode] = useState<string | null>(chat.invite_code || null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  const [onlyAdminsMessage, setOnlyAdminsMessage] = useState(Boolean(chat.only_admins_can_message));
+  const [onlyAdminsEditInfo, setOnlyAdminsEditInfo] = useState(Boolean(chat.only_admins_can_edit_info));
+
+  useEffect(() => {
+    if (isGroup && isOpen && !inviteCode) {
+      getOrGenerateGroupInviteCode(chat.id).then((code) => {
+        setInviteCode(code);
+        updateChat(chat.id, { invite_code: code });
+      });
+    }
+  }, [isGroup, isOpen, chat.id, inviteCode, updateChat]);
+
+  const handleCopyInviteLink = () => {
+    if (!inviteCode) return;
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://dardcor-media.vercel.app';
+    const link = `${origin}/join/${inviteCode}`;
+    navigator.clipboard.writeText(link);
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 2000);
+  };
+
+  const handleToggleAdminOnlyMessage = async () => {
+    const nextVal = !onlyAdminsMessage;
+    setOnlyAdminsMessage(nextVal);
+    updateChat(chat.id, { only_admins_can_message: nextVal });
+    await updateGroupPermissions(chat.id, { only_admins_can_message: nextVal });
+  };
+
+  const handleToggleAdminOnlyEditInfo = async () => {
+    const nextVal = !onlyAdminsEditInfo;
+    setOnlyAdminsEditInfo(nextVal);
+    updateChat(chat.id, { only_admins_can_edit_info: nextVal });
+    await updateGroupPermissions(chat.id, { only_admins_can_edit_info: nextVal });
+  };
 
   useEffect(() => {
     if (!isAddMemberOpen || !user) return;
@@ -529,6 +571,83 @@ export function ChatInfoDrawer({
                       ? 'Menambahkan...'
                       : `Tambah ${selectedMembers.length || ''} anggota`}
                   </button>
+                </div>
+              )}
+
+              {/* Tautan Undangan Grup */}
+              <div className="mt-4 pt-3 border-t border-[var(--wa-border)]/50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-[var(--wa-text-primary)] flex items-center gap-1.5">
+                    <LinkIcon size={14} className="text-[#a855f7]" />
+                    Tautan Undangan Grup
+                  </span>
+                  <button
+                    onClick={handleCopyInviteLink}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-purple-300 hover:text-purple-200 transition"
+                  >
+                    {copiedInvite ? (
+                      <>
+                        <Check size={13} className="text-emerald-400" />
+                        <span className="text-emerald-400">Tersalin</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={13} />
+                        <span>Salin Tautan</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="p-2 rounded-xl bg-[var(--wa-header-bg)] border border-[var(--wa-border)] flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-[var(--wa-text-secondary)] font-mono truncate select-all">
+                    {typeof window !== 'undefined'
+                      ? `${window.location.origin}/join/${inviteCode || '...'}`
+                      : `/join/${inviteCode || '...'}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Izin Khusus Admin Grup */}
+              {isAdmin && (
+                <div className="mt-4 pt-3 border-t border-[var(--wa-border)]/50 space-y-3">
+                  <span className="text-xs font-semibold text-[var(--wa-text-primary)] flex items-center gap-1.5">
+                    <ShieldCheck size={15} className="text-[#a855f7]" />
+                    Pengaturan Izin Anggota
+                  </span>
+
+                  <label className="flex items-center justify-between gap-3 cursor-pointer p-2 rounded-xl bg-[var(--wa-header-bg)] border border-[var(--wa-border)]">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-[var(--wa-text-primary)]">
+                        Hanya admin yang dapat mengirim pesan
+                      </p>
+                      <p className="text-[10px] text-[var(--wa-text-secondary)]">
+                        Anggota biasa hanya dapat membaca pesan
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={onlyAdminsMessage}
+                      onChange={handleToggleAdminOnlyMessage}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-transparent border-gray-600 cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between gap-3 cursor-pointer p-2 rounded-xl bg-[var(--wa-header-bg)] border border-[var(--wa-border)]">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-[var(--wa-text-primary)]">
+                        Hanya admin yang dapat mengedit info grup
+                      </p>
+                      <p className="text-[10px] text-[var(--wa-text-secondary)]">
+                        Mencegah anggota mengubah nama, deskripsi, atau foto grup
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={onlyAdminsEditInfo}
+                      onChange={handleToggleAdminOnlyEditInfo}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-transparent border-gray-600 cursor-pointer"
+                    />
+                  </label>
                 </div>
               )}
             </section>

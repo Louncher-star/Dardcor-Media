@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Eye,
   ImagePlus,
   Loader2,
   Plus,
@@ -12,10 +13,19 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { UserStatus } from '@/types';
+import { UserStatus, StatusView, Message, Chat } from '@/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { createStatus, deleteStatus, fetchActiveStatuses } from '@/lib/services/statusService';
+import { useChatStore } from '@/lib/store/useChatStore';
+import {
+  createStatus,
+  deleteStatus,
+  fetchActiveStatuses,
+  recordStatusView,
+  fetchStatusViewers,
+} from '@/lib/services/statusService';
+import { appendMessage, fetchUserChats } from '@/lib/services/chatService';
+import { toValidUuid } from '@/lib/utils/uuidUtils';
 import { uploadChatMedia } from '@/lib/utils/mediaUtils';
 import { formatChatListTime } from '@/lib/utils/dateUtils';
 
@@ -28,6 +38,7 @@ const BACKGROUND_COLORS = ['#7c3aed', '#0f766e', '#be123c', '#1d4ed8', '#b45309'
 
 export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
   const { user } = useAuthStore();
+  const { chats, setActiveChatId, setChats } = useChatStore();
 
   const [statuses, setStatuses] = useState<UserStatus[]>([]);
   const [activeGroup, setActiveGroup] = useState<UserStatus[] | null>(null);
@@ -40,6 +51,13 @@ export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Status viewers & reply states
+  const [viewers, setViewers] = useState<StatusView[]>([]);
+  const [isViewersOpen, setIsViewersOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [isTypingReply, setIsTypingReply] = useState(false);
+  const [isSendingReply, setIsSendingReply] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -65,8 +83,26 @@ export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
 
   const currentStatus = activeGroup?.[activeIndex];
 
+  // Catat pemirsa otomatis saat membuka status orang lain
   useEffect(() => {
-    if (!activeGroup || !currentStatus) return;
+    if (currentStatus && user && currentStatus.user_id !== user.id) {
+      recordStatusView(currentStatus.id, user);
+    }
+  }, [currentStatus, user]);
+
+  // Muat daftar pemirsa jika status milik sendiri
+  useEffect(() => {
+    if (currentStatus && user && currentStatus.user_id === user.id) {
+      fetchStatusViewers(currentStatus.id).then(setViewers);
+    } else {
+      setViewers([]);
+      setIsViewersOpen(false);
+    }
+  }, [currentStatus, user]);
+
+  // Jeda timer otomatis saat membuka daftar pemirsa atau sedang mengetik balasan
+  useEffect(() => {
+    if (!activeGroup || !currentStatus || isTypingReply || isViewersOpen) return;
     const timer = setTimeout(() => {
       if (activeIndex < activeGroup.length - 1) {
         setActiveIndex((index) => index + 1);
@@ -75,7 +111,7 @@ export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
       }
     }, 6000);
     return () => clearTimeout(timer);
-  }, [activeGroup, activeIndex, currentStatus]);
+  }, [activeGroup, activeIndex, currentStatus, isTypingReply, isViewersOpen]);
 
   if (!isOpen) return null;
 
@@ -140,6 +176,67 @@ export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
     await deleteStatus(statusId, user.id);
     setStatuses((prev) => prev.filter((status) => status.id !== statusId));
     setActiveGroup(null);
+  };
+
+  const handleSendReply = async () => {
+    if (!user || !currentStatus || !replyText.trim() || isSendingReply) return;
+
+    setIsSendingReply(true);
+    try {
+      const safeUserId = toValidUuid(user.id);
+      const targetUserId = currentStatus.user_id;
+      const safeTargetId = toValidUuid(targetUserId);
+
+      // Cari obrolan bersama yang ada
+      let targetChat = chats.find(
+        (c) =>
+          !c.is_group &&
+          (c.other_participant?.id === targetUserId ||
+            c.other_participant?.id === safeTargetId ||
+            c.participants?.some((p) => p.user_id === targetUserId || p.user_id === safeTargetId))
+      );
+
+      let chatId = targetChat?.id;
+      if (!chatId) {
+        const pairKey = [safeUserId, safeTargetId].sort().join('_');
+        chatId = toValidUuid('direct_' + pairKey);
+      }
+
+      const statusSnippet = currentStatus.caption
+        ? `"${currentStatus.caption.slice(0, 50)}"`
+        : currentStatus.media_url
+        ? 'Foto'
+        : 'Status';
+
+      const replyContent = `[Membalas Status: ${statusSnippet}]\n${replyText.trim()}`;
+
+      const newMsg: Message = {
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg_${Date.now()}`,
+        chat_id: chatId,
+        sender_id: safeUserId,
+        content: replyContent,
+        message_type: 'text',
+        is_deleted_for_all: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sender: user,
+      };
+
+      await appendMessage(newMsg, user.id, targetUserId);
+      const freshChats = await fetchUserChats(user.id);
+      setChats(freshChats);
+      setActiveChatId(chatId);
+
+      setReplyText('');
+      setIsTypingReply(false);
+      setActiveGroup(null);
+      onClose();
+    } catch (err) {
+      console.error('Gagal membalas status:', err);
+      alert('Gagal mengirim balasan status.');
+    } finally {
+      setIsSendingReply(false);
+    }
   };
 
   const openGroup = (group: UserStatus[]) => {
@@ -411,8 +508,92 @@ export function StatusDrawer({ isOpen, onClose }: StatusDrawerProps) {
             </div>
 
             {currentStatus.media_url && currentStatus.caption && (
-              <div className="absolute bottom-4 inset-x-4 z-20 p-3 bg-black/60 backdrop-blur-md rounded-xl text-center text-sm text-white">
+              <div className="absolute bottom-16 inset-x-4 z-20 p-3 bg-black/60 backdrop-blur-md rounded-xl text-center text-sm text-white">
                 {currentStatus.caption}
+              </div>
+            )}
+
+            {/* Indikator Pemirsa Status Sendiri */}
+            {currentStatus.user_id === user?.id && (
+              <div className="absolute bottom-4 inset-x-0 z-30 flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => setIsViewersOpen(true)}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold hover:bg-black/80 transition shadow-lg border border-white/20"
+                >
+                  <Eye size={16} />
+                  <span>{viewers.length} {viewers.length === 1 ? 'orang telah melihat' : 'pemirsa'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Input Balas Status Pengguna Lain */}
+            {currentStatus.user_id !== user?.id && (
+              <div className="absolute bottom-4 inset-x-4 z-30 flex items-center gap-2">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={replyText}
+                    onChange={(e) => {
+                      setReplyText(e.target.value);
+                      setIsTypingReply(e.target.value.length > 0);
+                    }}
+                    onFocus={() => setIsTypingReply(true)}
+                    onBlur={() => {
+                      if (!replyText.trim()) setIsTypingReply(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSendReply();
+                    }}
+                    placeholder="Balas status..."
+                    className="w-full px-4 py-2.5 rounded-full bg-black/60 backdrop-blur-md text-white text-xs placeholder:text-white/60 focus:outline-none border border-white/20 focus:border-[#a855f7] transition"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendReply}
+                  disabled={!replyText.trim() || isSendingReply}
+                  className="w-10 h-10 rounded-full bg-[#7c3aed] text-white flex items-center justify-center hover:bg-[#6d28d9] disabled:opacity-40 transition shrink-0 shadow-lg"
+                  title="Kirim Balasan"
+                >
+                  {isSendingReply ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                </button>
+              </div>
+            )}
+
+            {/* Panel Daftar Pemirsa Status */}
+            {isViewersOpen && (
+              <div className="absolute inset-x-0 bottom-0 max-h-[70%] z-40 bg-[var(--wa-bg-sidebar)] rounded-t-2xl flex flex-col p-4 shadow-2xl border-t border-[var(--wa-border)] animate-in slide-in-from-bottom duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-[var(--wa-border)]">
+                  <div className="flex items-center gap-2">
+                    <Eye size={18} className="text-[#a855f7]" />
+                    <h4 className="text-sm font-bold text-white">Dilihat oleh {viewers.length}</h4>
+                  </div>
+                  <button
+                    onClick={() => setIsViewersOpen(false)}
+                    className="p-1 rounded-full text-white/70 hover:text-white"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto divide-y divide-[var(--wa-border)]/40 mt-2">
+                  {viewers.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-white/50">Belum ada yang melihat status ini.</div>
+                  ) : (
+                    viewers.map((v) => (
+                      <div key={v.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Avatar src={v.viewer?.avatar_url} name={v.viewer?.display_name || 'User'} size="sm" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-white truncate">{v.viewer?.display_name || 'Pengguna'}</p>
+                            <p className="text-[10px] text-white/50">@{v.viewer?.username || 'user'}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-white/50 shrink-0">{formatChatListTime(v.viewed_at)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
 

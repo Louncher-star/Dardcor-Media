@@ -18,6 +18,15 @@ import { useRealtimeChat } from '@/lib/hooks/useRealtimeChat';
 import { usePresence } from '@/lib/hooks/usePresence';
 import { AppNavigationSidebar } from '@/components/layout/AppNavigationSidebar';
 import { SettingsDrawer } from '@/components/settings/SettingsDrawer';
+import { IncomingCallModal } from '@/components/chat/IncomingCallModal';
+import { CallModal } from '@/components/chat/CallModal';
+import {
+  subscribeToIncomingCalls,
+  answerCallSession,
+  rejectCallSession,
+  endCallSession,
+} from '@/lib/services/callService';
+import { CallSession } from '@/types';
 import { CircleDashed, MessageSquare, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +38,8 @@ export default function DardcorChatApp() {
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
+  const [activeAcceptedCall, setActiveAcceptedCall] = useState<CallSession | null>(null);
 
   // Inisialisasi Realtime dan Presence terpusat
   useRealtimeChat(activeChatId);
@@ -63,6 +74,11 @@ export default function DardcorChatApp() {
       const blocked = await fetchBlockedUserIds(currentUser.id);
       setBlockedUserIds(blocked);
 
+      // Dengarkan panggilan masuk secara Realtime
+      const unsubscribeCalls = subscribeToIncomingCalls(currentUser.id, (call) => {
+        setIncomingCall(call);
+      });
+
       // Dengarkan event sinkronisasi antar-tab
       unsubscribeSync = subscribeToLocalSync(async (event) => {
         if (event.type === 'CHATS_UPDATED') {
@@ -72,14 +88,35 @@ export default function DardcorChatApp() {
       });
 
       setLoading(false);
+
+      return () => {
+        if (unsubscribeCalls) unsubscribeCalls();
+      };
     };
 
-    initUserAndChats();
+    let cleanupCalls: (() => void) | undefined;
+    initUserAndChats().then((cleanup) => {
+      if (typeof cleanup === 'function') {
+        cleanupCalls = cleanup;
+      }
+    });
 
     return () => {
       if (unsubscribeSync) unsubscribeSync();
+      if (cleanupCalls) cleanupCalls();
     };
   }, [router, setUser, setLoading, setChats, setStarredMessageIds, setBlockedUserIds]);
+
+  const handleAcceptIncomingCall = async (call: CallSession) => {
+    await answerCallSession(call.id);
+    setIncomingCall(null);
+    setActiveAcceptedCall(call);
+  };
+
+  const handleRejectIncomingCall = async (call: CallSession) => {
+    await rejectCallSession(call.id);
+    setIncomingCall(null);
+  };
 
   if (isLoading || !user) {
     return (
@@ -131,6 +168,31 @@ export default function DardcorChatApp() {
 
         {isSettingsOpen && (
           <SettingsDrawer isOpen onClose={() => setIsSettingsOpen(false)} />
+        )}
+
+        {/* Modal Panggilan Masuk */}
+        <IncomingCallModal
+          call={incomingCall}
+          onAccept={handleAcceptIncomingCall}
+          onReject={handleRejectIncomingCall}
+        />
+
+        {/* Modal Panggilan Aktif Setelah Diterima */}
+        {activeAcceptedCall && (
+          <CallModal
+            isOpen={true}
+            callType={activeAcceptedCall.call_type}
+            contact={activeAcceptedCall.caller || null}
+            chatName={
+              activeAcceptedCall.caller?.display_name ||
+              activeAcceptedCall.caller?.username ||
+              'Panggilan Suara / Video'
+            }
+            onClose={() => {
+              endCallSession(activeAcceptedCall.id);
+              setActiveAcceptedCall(null);
+            }}
+          />
         )}
       </div>
 

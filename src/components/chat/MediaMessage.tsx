@@ -17,6 +17,7 @@ import { Message } from '@/types';
 import { formatFileSize } from '@/lib/utils';
 import { useChatStore } from '@/lib/store/useChatStore';
 import { downloadMediaFile } from '@/lib/utils/mediaUtils';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 interface MediaMessageProps {
   message: Message;
@@ -29,6 +30,57 @@ export function MediaMessage({ message }: MediaMessageProps) {
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   if (!message.media_url) return null;
+
+  // 0. Penanganan Pesan Sekali Lihat (View Once) ala WhatsApp Asli
+  if (message.is_view_once) {
+    if (message.is_opened) {
+      return (
+        <div className="flex items-center gap-2.5 px-3 py-2.5 my-1 rounded-xl bg-black/5 dark:bg-white/5 border border-[var(--wa-border)]/50 text-[var(--wa-text-secondary)] select-none">
+          <div className="w-7 h-7 rounded-full border-2 border-dashed border-[var(--wa-text-secondary)] flex items-center justify-center font-bold text-xs">
+            1
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-[var(--wa-text-secondary)]">Dibuka</span>
+            <span className="text-[10px] text-[var(--wa-text-secondary)]/70">Pesan sekali lihat telah dibuka</span>
+          </div>
+        </div>
+      );
+    }
+
+    const handleOpenViewOnce = () => {
+      setLightboxMessage(message);
+      useChatStore.getState().updateMessage(message.chat_id, message.id, {
+        is_opened: true,
+      });
+      if (isSupabaseConfigured()) {
+        createClient()
+          .from('messages')
+          .update({ is_opened: true })
+          .eq('id', message.id)
+          .then();
+      }
+    };
+
+    return (
+      <button
+        type="button"
+        onClick={handleOpenViewOnce}
+        className="flex items-center gap-3 px-3 py-2.5 my-1 rounded-xl bg-[#00a884]/10 dark:bg-[#00a884]/15 border border-[#00a884]/40 hover:bg-[#00a884]/20 transition text-[var(--wa-text-primary)] select-none cursor-pointer w-full max-w-xs text-left"
+      >
+        <div className="w-8 h-8 rounded-full border-2 border-[#00a884] bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-black text-xs shrink-0 shadow-sm">
+          1
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="text-xs font-bold block text-[var(--wa-text-primary)]">
+            {message.message_type === 'video' ? 'Video Sekali Lihat' : 'Foto Sekali Lihat'}
+          </span>
+          <span className="text-[10px] text-[var(--wa-text-secondary)] block">
+            Ketuk untuk membuka • Akan hilang setelah ditutup
+          </span>
+        </div>
+      </button>
+    );
+  }
 
   const handleDownload = async (targetFileName: string) => {
     if (!message.media_url || isDownloading) return;

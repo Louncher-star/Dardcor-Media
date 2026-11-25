@@ -11,12 +11,14 @@ import {
   Check,
   CheckCheck,
   FileText,
+  Lock,
   Mail,
   Mic,
   MoreVertical,
   Pin,
   PinOff,
   Trash2,
+  Unlock,
   Video,
   VolumeX,
 } from 'lucide-react';
@@ -99,7 +101,12 @@ export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
   const draft = drafts[chat.id] || '';
   const hasUnread = (chat.unread_count || 0) > 0;
 
-  const applyPrefs = (prefs: { is_pinned?: boolean; is_archived?: boolean; is_muted?: boolean }) => {
+  const applyPrefs = (prefs: {
+    is_pinned?: boolean;
+    is_archived?: boolean;
+    is_muted?: boolean;
+    is_locked?: boolean;
+  }) => {
     updateChat(chat.id, prefs);
     if (user) updateChatPrefs(chat.id, user.id, prefs);
     setMenuOpen(false);
@@ -122,6 +129,10 @@ export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
   const handleToggleArchive = () => {
     applyPrefs({ is_archived: !chat.is_archived });
     if (!chat.is_archived && isActive) setActiveChatId(null);
+  };
+  const handleToggleLock = () => {
+    applyPrefs({ is_locked: !chat.is_locked });
+    if (!chat.is_locked && isActive) setActiveChatId(null);
   };
 
   const handleMarkUnread = () => {
@@ -343,6 +354,14 @@ export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
                   >
                     {chat.is_archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                     <span>{chat.is_archived ? 'Keluarkan dari arsip' : 'Arsipkan obrolan'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleToggleLock}
+                    className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--wa-hover)] text-left text-[var(--wa-text-primary)] transition"
+                  >
+                    {chat.is_locked ? <Unlock size={16} /> : <Lock size={16} />}
+                    <span>{chat.is_locked ? 'Buka kunci obrolan' : 'Kunci obrolan rahasia'}</span>
                   </button>
 
                   <button
